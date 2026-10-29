@@ -1,5 +1,6 @@
 //! Where the asset files are at run time (the MG-300 pictures; fonts and icons are compiled in): QUICKRS_ASSETS,
-//! else an `assets` folder next to the exe (the release zip), else the repo's (running from target/).
+//! else an `assets` folder next to the exe (the release zip) or in a Mac app's Resources, else the repo's (running
+//! from target/).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -16,6 +17,7 @@ pub fn dir() -> Option<&'static PathBuf> {
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         {
             tries.push(exe.join("assets"));
+            tries.push(exe.join("../Resources/assets")); // quickRS.app/Contents/MacOS -> Contents/Resources
             tries.push(exe.join("../../assets")); // target/release -> the repo
         }
         tries.push(PathBuf::from(concat!(

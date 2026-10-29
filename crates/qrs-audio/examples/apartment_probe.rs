@@ -8,6 +8,9 @@
 //!
 //!     cargo run --release -p qrs-audio --features asio --example apartment_probe -- mta here mta none
 
+// (Windows only: elsewhere it builds to nothing)
+#![cfg_attr(not(windows), allow(unused))]
+
 fn list(tag: &str) {
     let devs = qrs_audio::backend::enumerate_only(qrs_audio::backend::Backend::Asio);
     println!(

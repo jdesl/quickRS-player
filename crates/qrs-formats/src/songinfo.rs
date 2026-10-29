@@ -293,6 +293,7 @@ mod tests {
                 sustain: 0.0,
                 frets: vec![],
                 fingers: vec![],
+                high_density: false,
             })
             .collect();
         a.sections = vec![
@@ -359,6 +360,7 @@ mod tests {
                 sustain: 0.0,
                 frets: vec![],
                 fingers: vec![],
+                high_density: false,
             })
             .collect();
         assert!(

@@ -12,6 +12,4 @@ workspace = true
 [dependencies]
 qrs-formats.workspace = true
 realfft.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true

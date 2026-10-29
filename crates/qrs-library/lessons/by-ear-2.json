@@ -1,0 +1,90 @@
+{
+  "id": "by-ear-2",
+  "number": 2,
+  "course": "Ear training",
+  "course_order": 2,
+  "title": "More by ear: longer riffs",
+  "summary": "Five longer riffs, up to twenty notes, that jump between strings. Fewer string hints, more listening.",
+  "intro": [
+    "In Ear training lesson 1 nearly every riff lived on one string and the coach told you which. Real riffs don't stay put. These five cross two, three, even five strings. For the first two the coach still names the strings; the other three give you only a clue.",
+    "The method is the same: ears first, eyes last. What changes is the thinking. A note can be played in more than one place, so as well as 'higher or lower?' you now ask 'where is the easiest place for my hand to play this?'",
+    "Work in chunks. Hum the first four or five notes, find them, then hum the next few. Long riffs are just short riffs joined together."
+  ],
+  "tips": [
+    "Chunk it. Find four or five notes, loop them in your head, then add the next few.",
+    "When a riff jumps up a lot, try the next string before you slide five frets up. The same note sits five frets lower on the next string up (four between the G and B strings).",
+    "Open strings are your friends. If a note sounds very low or rings on, try an open string first.",
+    "Listen for repeats. Most long riffs say the same thing twice with a different ending, so half the work is done once you've found the first half.",
+    "Keep your hand in one area. If you're stretching all over the neck, there's an easier place to play it.",
+    "Got the notes but not the feel? Listen again just for the rhythm, and tap it on your leg."
+  ],
+  "credit": "The method follows Justin Sandercoe's transcribing lessons (justinguitar.com): hear it, sing it, find it a few notes at a time, and only check the tab at the end. The tips on chunking and staying in one hand position are common advice from his Transcribing course and from most teachers who work by ear.",
+  "riffs": [
+    {
+      "id": "sweet-emotion",
+      "kind": "ear",
+      "name": "The verse riff",
+      "artist": "Aerosmith",
+      "title": "Sweet Emotion",
+      "part": "Lead",
+      "start": 87.8,
+      "end": 90.25,
+      "phrase": 12,
+      "string_hint": true,
+      "about": "Twelve notes on the A and low E strings. Three notes fall down, then the riff drops to the open low E and climbs the low E string a fret at a time, from fret 2 to fret 5. Most notes come in pairs, so listen for the repeats."
+    },
+    {
+      "id": "breaking-the-law",
+      "kind": "ear",
+      "name": "The intro riff",
+      "artist": "Judas Priest",
+      "title": "Breaking the Law",
+      "part": "Combo",
+      "start": 11.45,
+      "end": 17.4,
+      "phrase": 18,
+      "string_hint": true,
+      "about": "Eighteen notes on the A and low E strings, starting on the open A. The same three notes come round three times before the riff drops to the low string. Find the first three and you've got half of it."
+    },
+    {
+      "id": "mountain-king",
+      "kind": "ear",
+      "name": "The melody, second half",
+      "artist": "Edvard Grieg",
+      "title": "In the Hall of the Mountain King",
+      "part": "Lead",
+      "start": 35.37,
+      "end": 39.7,
+      "phrase": 13,
+      "string_hint": false,
+      "about": "You already know this tune, so hum it first. Thirteen notes over three strings, in C minor on this recording. It climbs up a scale, then jumps up high and comes back down. No string hint: start on the A string."
+    },
+    {
+      "id": "rebel-rebel",
+      "kind": "ear",
+      "name": "The riff",
+      "artist": "David Bowie",
+      "title": "Rebel Rebel",
+      "part": "Lead",
+      "start": 11.9,
+      "end": 16.27,
+      "phrase": 12,
+      "string_hint": false,
+      "about": "Twelve notes over five strings, and seven of them are open strings. It's in the open E area at the bottom of the neck. The one very low note in the middle is a clue: try the open low E."
+    },
+    {
+      "id": "my-sharona",
+      "kind": "ear",
+      "name": "The riff",
+      "artist": "The Knack",
+      "title": "My Sharona",
+      "part": "Lead",
+      "start": 23.05,
+      "end": 29.55,
+      "phrase": 16,
+      "pass": 0.85,
+      "string_hint": false,
+      "about": "The longest one: twenty-one notes, and most of them are the same note in two octaves, a low one and a high one. Find the low note first, then find its octave two strings up and two frets along. The play-along covers the whole riff."
+    }
+  ]
+}

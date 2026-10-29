@@ -254,14 +254,26 @@ pub enum ToneSpec {
     Custom {
         params: ToneParams,
     },
+    /// The pedalboard (D26): blocks in an order, each with its knobs.
+    Board {
+        board: crate::board::Board,
+    },
 }
 
 impl ToneSpec {
+    /// The fixed chain's knobs (None for "as is" and for a board).
     pub fn params(&self) -> Option<ToneParams> {
         match self {
-            ToneSpec::AsIs => None,
+            ToneSpec::AsIs | ToneSpec::Board { .. } => None,
             ToneSpec::Preset { preset } => Some(preset.params()),
             ToneSpec::Custom { params } => Some(*params),
+        }
+    }
+
+    pub fn board(&self) -> Option<&crate::board::Board> {
+        match self {
+            ToneSpec::Board { board } => Some(board),
+            _ => None,
         }
     }
 
@@ -482,6 +494,9 @@ impl ToneProcessor for ToneChain {
 
 /// The processor for a tone at a sample rate (None for "as is"). Builds delay lines: call off the audio thread.
 pub fn make_tone(spec: &ToneSpec, rate: u32) -> Option<Box<dyn ToneProcessor>> {
+    if let ToneSpec::Board { board } = spec {
+        return Some(crate::board::make_board(board, rate));
+    }
     spec.params()
         .map(|p| Box::new(ToneChain::new(rate, p)) as Box<dyn ToneProcessor>)
 }

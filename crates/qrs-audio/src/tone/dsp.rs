@@ -130,6 +130,18 @@ impl Biquad {
         self.z1 = 0.0;
         self.z2 = 0.0;
     }
+
+    /// The filter's gain at `f` Hz (linear), from its coefficients.
+    pub fn magnitude(&self, f: f32, rate: f32) -> f32 {
+        let w = TAU * f / rate;
+        let (c1, s1, c2, s2) = (w.cos(), w.sin(), (2.0 * w).cos(), (2.0 * w).sin());
+        let (nr, ni) = (
+            self.b0 + self.b1 * c1 + self.b2 * c2,
+            -(self.b1 * s1 + self.b2 * s2),
+        );
+        let (dr, di) = (1.0 + self.a1 * c1 + self.a2 * c2, -(self.a1 * s1 + self.a2 * s2));
+        ((nr * nr + ni * ni) / (dr * dr + di * di).max(1e-30)).sqrt()
+    }
 }
 
 /// Envelope follower: separate attack and release time constants.

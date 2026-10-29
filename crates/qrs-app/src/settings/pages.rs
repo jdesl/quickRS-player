@@ -1,9 +1,8 @@
-//! The Display, Practice and Library pages (port of settingsview.py `draw_display`, `tile_row`, `draw_practice`,
-//! `draw_library`; the library page adds which copy plays when a song is there as both a psarc and a feedpak).
+//! The Display and Practice pages (port of settingsview.py `draw_display`, `tile_row`, `draw_practice`; the
+//! Library page is in library.rs).
 
 use eframe::egui;
 use egui::{Align2, CursorIcon, Rect, Sense, Ui, pos2, vec2};
-use qrs_library::Prefer;
 use qrs_ui::anim;
 use qrs_ui::icons::{self, Icon};
 use qrs_ui::keys::{CapOn, keycap};
@@ -12,10 +11,9 @@ use qrs_ui::paint::{self, Fill};
 use qrs_ui::text::{self, Style};
 use qrs_ui::theme::{self, t};
 use qrs_ui::units::px;
-use qrs_ui::widgets::{self, ButtonStyle, Segmented, interact};
+use qrs_ui::widgets::{self, Segmented, interact};
 
-use super::{SettingsView, TileDrag, caption_lines, centre_x, centre_y, line_h, snap};
-use crate::home::group_digits;
+use super::{SettingsView, TileDrag, centre_x, centre_y, snap};
 use crate::player::tiles::{self, TILES};
 use crate::state::AppState;
 
@@ -38,7 +36,7 @@ const NOTATIONS: [(&str, &str); 5] = [
     ("triplets", "Triplets"),
 ];
 
-fn seg_opts<'a>(labels: &'a [&'a str], sel: usize) -> Segmented<'a> {
+pub(super) fn seg_opts<'a>(labels: &'a [&'a str], sel: usize) -> Segmented<'a> {
     let mut so = Segmented::new(labels, Some(sel));
     so.size = 14.0;
     so.r = 16.0;
@@ -56,7 +54,7 @@ impl SettingsView {
         let colw = snap((body.width() - gap) / 2.0);
         let seg_h = px(44.0) + 2.0 * px(6.0);
         let hh = Self::h_heading(&ctx);
-        // the look: theme and knobs (the pick at the top of the sidebar switches dark and light too)
+        // the look: theme and knobs (the pick at the top of the sidebar steps through all three too)
         let look = Rect::from_min_size(body.min, vec2(body.width(), 2.0 * pad + hh + px(24.0) + seg_h));
         paint::card(&p, look, 24.0, false);
         let y = self.heading(
@@ -412,145 +410,5 @@ impl SettingsView {
             y2 += self.stepper(ui, x2, y2, wd2, minus, &value.replace('-', "\u{2212}"), plus) + px(24.0);
         }
         card.max.y.max(card2.max.y)
-    }
-
-    pub(super) fn draw_library(&mut self, ui: &mut Ui, st: &mut AppState, body: Rect) -> f32 {
-        let th = t();
-        let p = ui.painter().clone();
-        let ctx = ui.ctx().clone();
-        let pad = px(22.0);
-        let hh = Self::h_heading(&ctx);
-        let dirs: Vec<String> = if st.dirs.is_empty() {
-            vec!["(none yet: drop a folder of songs on the window to add it)".into()]
-        } else {
-            st.dirs.iter().map(|d| d.display().to_string()).collect()
-        };
-        let wd_all = snap(body.width().min(760.0));
-        let box_h = 2.0 * px(10.0) + dirs.len() as f32 * px(22.0);
-        let both = st
-            .groups
-            .iter()
-            .any(|g| g.has_psarc(&st.songs) && g.has_feedpak(&st.songs));
-        // (quickRS's own: which copy plays, under the song list's switch, laid out as the Display page's choices)
-        let seg_h = px(44.0) + 2.0 * px(6.0);
-        let prefer_h = if both {
-            px(26.0) + hh + seg_h + px(10.0) + line_h(&ctx, 13.0)
-        } else {
-            0.0
-        };
-        let card = Rect::from_min_size(
-            body.min,
-            vec2(
-                wd_all,
-                pad + hh
-                    + box_h
-                    + px(16.0)
-                    + px(46.0)
-                    + px(26.0)
-                    + hh
-                    + Self::h_switch("md", true)
-                    + prefer_h
-                    + pad,
-            ),
-        );
-        paint::card(&p, card, 24.0, false);
-        let (x, wd) = (card.min.x + pad, card.width() - 2.0 * pad);
-        let found = format!("{} songs found", group_digits(st.groups.len()));
-        let mut y = self.heading(
-            &p,
-            "SONG FOLDERS",
-            x,
-            card.min.y + pad,
-            Some(card.max.x - pad),
-            &found,
-            "",
-        );
-        let bx = Rect::from_min_size(pos2(x, y), vec2(wd, box_h));
-        paint::display(&p, bx, Some(14.0), 4.0);
-        for (i, d) in dirs.iter().enumerate() {
-            text::draw(
-                &p,
-                d,
-                pos2(bx.min.x + px(14.0), bx.min.y + px(10.0) + i as f32 * px(22.0)),
-                Align2::LEFT_TOP,
-                Style::new(13.0, 500, if st.dirs.is_empty() { th.caption } else { th.text }),
-                Some(bx.width() - px(28.0)),
-            );
-        }
-        y = bx.max.y + px(16.0);
-        let bw = widgets::button_width(&ctx, "Rescan folders", "F5", 14.0, false);
-        let rescan = Rect::from_min_size(pos2(x, y), vec2(bw, px(46.0)));
-        self.button(
-            ui,
-            rescan,
-            "Rescan folders",
-            "F5",
-            "rescan",
-            ButtonStyle {
-                size: 14.0,
-                r: Some(14.0),
-                ..Default::default()
-            },
-        );
-        if st.scanning() {
-            let done = st.library.done.load(std::sync::atomic::Ordering::Relaxed);
-            let total = st.library.total.load(std::sync::atomic::Ordering::Relaxed);
-            text::draw(
-                &p,
-                &format!("Reading songs… {done} of {total}"),
-                pos2(x + bw + px(16.0), centre_y(rescan)),
-                Align2::LEFT_CENTER,
-                Style::new(13.0, 500, th.caption),
-                Some(wd - bw - px(16.0)),
-            );
-        }
-        y += px(46.0) + px(26.0);
-        y = self.heading(&p, "SONG LIST", x, y, None, "", "");
-        y += self.switch_row(
-            ui,
-            x,
-            y,
-            wd,
-            "Expand & preview the selected song",
-            "bigger cover and the song's preview clip",
-            st.config.bool("select_preview", true),
-            "toggle:select_preview",
-            "md",
-            "",
-            700,
-        );
-        if both {
-            y += px(26.0);
-            y = self.heading(
-                &p,
-                "SONGS IN BOTH FORMATS",
-                x,
-                y,
-                Some(card.max.x - pad),
-                "which copy plays",
-                "",
-            );
-            let seg = Rect::from_min_size(pos2(x, y), vec2(wd.min(px(420.0)), seg_h));
-            let sel = usize::from(st.prefer() == Prefer::Feedpak);
-            let (_, clicked) = widgets::segmented(
-                ui,
-                seg,
-                "set-prefer",
-                &seg_opts(&["The psarc", "The feedpak"], sel),
-            );
-            if let Some(i) = clicked {
-                self.acts.push(format!("prefer:{}", ["psarc", "feedpak"][i]));
-            }
-            caption_lines(
-                &p,
-                "Your scores are shared by both copies; the part picker can still open the other one.",
-                x,
-                seg.max.y + px(10.0),
-                wd,
-                13.0,
-                1,
-            );
-        }
-        card.max.y
     }
 }

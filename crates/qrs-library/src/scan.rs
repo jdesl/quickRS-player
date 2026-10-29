@@ -207,7 +207,8 @@ fn entry_of(pkg: &Package, path: &Path, size: u64, mtime: f64, song_key: &str) -
 }
 
 /// One entry per song in the package (packs like songs.psarc hold dozens). A file that can't be read gives one
-/// entry with its error (or `needs_keys`), so it isn't read again until it changes.
+/// entry with its error (or `needs_keys`), so it isn't read again until it changes (or, for `needs_keys`, until
+/// there are keys).
 pub fn read_entries(path: &Path, keys: &Keys) -> Vec<SongEntry> {
     let Some((size, mtime)) = stamp(path) else {
         return Vec::new();
@@ -339,10 +340,16 @@ impl Library {
         self.total.store(files.len(), Ordering::Release);
         let mut fresh: Vec<SongEntry> = Vec::new();
         let mut stale: Vec<PathBuf> = Vec::new();
+        // songs read before the keys were added are read again once they're here
+        let retry_keys = keys.can_read_psarc();
         for f in &files {
             let key = f.to_string_lossy().into_owned();
             match (cached.get(&key), stamp(f)) {
-                (Some(c), Some((size, mtime))) if c[0].size == size && (c[0].mtime - mtime).abs() < 1.0 => {
+                (Some(c), Some((size, mtime)))
+                    if c[0].size == size
+                        && (c[0].mtime - mtime).abs() < 1.0
+                        && !(retry_keys && c.iter().any(|e| e.needs_keys)) =>
+                {
                     fresh.extend(c.iter().cloned())
                 }
                 (_, Some(_)) => stale.push(f.clone()),
@@ -387,5 +394,38 @@ impl Library {
         all.sort_by(|a, b| a.path.cmp(&b.path).then(a.song_key.cmp(&b.song_key)));
         save_index(index, &all);
         self.publish(all);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qrs_formats::testutil::{TEST_PSARC_KEY, demo_psarc, test_keys};
+
+    #[test]
+    fn songs_that_needed_keys_are_read_again_once_there_are_keys() {
+        let dir = std::env::temp_dir().join(format!("qrs-scan-keys-{}", std::process::id()));
+        let songs = dir.join("dlc");
+        std::fs::create_dir_all(&songs).unwrap();
+        std::fs::write(songs.join("demo_p.psarc"), demo_psarc(Some(&TEST_PSARC_KEY))).unwrap();
+        let index = dir.join("library.json");
+        let lib = Library::new();
+
+        lib.scan(&Keys::default(), std::slice::from_ref(&songs), &index);
+        let before = lib.snapshot();
+        assert!(before.len() == 1 && before[0].needs_keys);
+
+        // the next start, with keys.json in place: the file hasn't changed, but the cached row isn't kept
+        lib.scan(&test_keys(), std::slice::from_ref(&songs), &index);
+        let after = lib.snapshot();
+        assert!(!after.is_empty() && after.iter().all(|s| s.playable()));
+
+        // and once read, it's cached as usual
+        lib.scan(&test_keys(), std::slice::from_ref(&songs), &index);
+        assert_eq!(
+            lib.done.load(Ordering::Acquire),
+            lib.total.load(Ordering::Acquire)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

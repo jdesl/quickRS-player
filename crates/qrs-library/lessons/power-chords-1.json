@@ -1,0 +1,128 @@
+{
+  "id": "power-chords-1",
+  "number": 1,
+  "course": "Rock and blues foundations",
+  "course_order": 3,
+  "title": "Power chords and palm muting",
+  "summary": "The two-finger chord behind most rock songs, moved around the neck, played with all downstrokes and a muted chug.",
+  "intro": [
+    "A power chord is just a root note and the note five frets up on the next string (its fifth). No major or minor, so it fits almost anywhere, and it sounds huge with distortion. Learn one shape and you can play hundreds of songs.",
+    "This lesson follows the order most teachers use: one shape first, then moving it, then strumming it in steady eighth notes, then palm muting. The last two items are long: a whole verse and chorus, played with the record from start to end.",
+    "The new skill here is the right hand. Keep it moving, keep it even, and let the left hand slide between shapes without letting go of the strings."
+  ],
+  "tips": [
+    "Root on the low E or A string with your first finger, fifth two frets up on the next string with your third finger. Add your little finger on the string after that for the octave.",
+    "Mute what you don't play. The underside of your first finger rests on the higher strings, so a big strum still only sounds two or three notes.",
+    "To move a shape, keep your fingers on the strings and slide. Ease off the pressure, glide, press again. Don't lift off.",
+    "Palm mute: rest the side of your picking hand on the strings just where they leave the bridge. Too far in and the notes die; too far out and nothing changes.",
+    "All downstrokes is a stamina thing. Use small movements from the wrist, not the elbow, and shake out between goes.",
+    "If you lose the record, don't stop. Jump back in on the next chord change."
+  ],
+  "credit": "The order follows Justin Sandercoe's beginner course (justinguitar.com): power chords, then power chord shifts and palm mutes (his Stage 9 lesson keeps the fingers on the strings while sliding and rests the palm on the bridge), then songs to practise them. His Smells Like Teen Spirit lesson shows Kurt Cobain's flat third-finger grip and stresses getting the intro rhythm exact. The downstroke and muting tips are standard rock rhythm advice.",
+  "riffs": [
+    {
+      "id": "really-got-me",
+      "kind": "learn",
+      "name": "The riff",
+      "artist": "The Kinks",
+      "title": "You Really Got Me",
+      "part": "Rhythm",
+      "start": 11.43,
+      "end": 18.47,
+      "about": "Two power chords, one shape, two frets apart: F5 at the first fret and G5 at the third, on the low E string. Five quick hits, then a gap, every bar.",
+      "how": [
+        "First finger on the low E string, third finger flat across the A and D strings two frets up.",
+        "Slide between fret 1 and fret 3 without lifting. Ease the pressure, glide, press.",
+        "Downstrokes for every chord. Count the gap: the riff starts again on the 'and' just before beat one, so the F5 is a pickup into the G5.",
+        "Strum only the three low strings. The rest of your first finger mutes the others."
+      ]
+    },
+    {
+      "id": "blitzkrieg-verse",
+      "kind": "learn",
+      "name": "The verse",
+      "artist": "Ramones",
+      "title": "Blitzkrieg Bop",
+      "part": "Combo 2",
+      "start": 41.5,
+      "end": 49.65,
+      "about": "Steady eighth notes on two-note power chords: A5, then D5 and E5. Johnny Ramone played every one with a downstroke, and that's what gives the song its drive.",
+      "how": [
+        "A5 is the fifth fret of the low E string plus the seventh fret of the A string.",
+        "D5 and E5 use the same shape moved over one string: fifth and seventh fret, then seventh and ninth, rooted on the A string.",
+        "All downstrokes, small and from the wrist. Keep the hand moving even when you change chord.",
+        "The D5 and E5 come as a quick push before the A5 returns. Count them so you're back on A5 in time."
+      ]
+    },
+    {
+      "id": "law-chorus",
+      "kind": "learn",
+      "name": "The chorus: palm-muted chug",
+      "artist": "Judas Priest",
+      "title": "Breaking the Law",
+      "part": "Combo",
+      "start": 47.04,
+      "end": 59.4,
+      "about": "The open A string chugged under your palm, with a ringing chord stab on top every few beats. This is palm muting in its purest form.",
+      "how": [
+        "Rest your picking palm on the strings by the bridge and pick the open A in steady even notes. It should sound tight and percussive, not dead.",
+        "For the stab, lift the palm and hit the top three strings: G string fret 9, B string fret 10, high E fret 12. That's an A power chord with its fifth underneath. Most stabs end with a quick slide down the neck as you let go.",
+        "Go straight back to the chug after each stab. The palm goes down as the pick comes back.",
+        "Count the chugs between stabs; the gaps aren't all the same length."
+      ]
+    },
+    {
+      "id": "teen-spirit-intro",
+      "kind": "learn",
+      "name": "The intro",
+      "artist": "Nirvana",
+      "title": "Smells Like Teen Spirit",
+      "part": "Rhythm",
+      "start": 18.62,
+      "end": 26.75,
+      "about": "Four power chords, F5, Bb5, Ab5 and Db5, with muted strums and open strings in between. The open strings are the sound of the hand moving to the next chord, and Kurt Cobain left them in on purpose.",
+      "how": [
+        "F5 on the low E string at fret 1; Bb5 on the A string at fret 1; Ab5 on the low E at fret 4; Db5 on the A at fret 4.",
+        "Cobain's grip: lay your third finger flat across three strings, so the chart has a fourth note. A plain two-note power chord works too.",
+        "The muted strums: keep the chord shape but release the pressure, so the strings click instead of ringing.",
+        "Strum through the open strings as you change shape. Don't try to stop them."
+      ]
+    },
+    {
+      "id": "really-got-me-whole",
+      "kind": "learn",
+      "name": "Verse to chorus",
+      "artist": "The Kinks",
+      "title": "You Really Got Me",
+      "part": "Rhythm",
+      "start": 11.43,
+      "end": 51.0,
+      "pass": 0.8,
+      "about": "Forty seconds: the riff, then the same riff moved up two frets for the build, then up again to the eighth fret for the chorus. The root stays on the low E string all the way.",
+      "how": [
+        "Verse: F5 and G5 at frets 1 and 3.",
+        "Build: the riff moves up to G5 and A5, frets 3 and 5.",
+        "Chorus: C and D, frets 8 and 10, still rooted on the low E string. The chart has full six-string barre chords here; the power chord part on the three low strings works too.",
+        "Look ahead to the next fret while you play the last chord of a section, then slide."
+      ]
+    },
+    {
+      "id": "blitzkrieg-whole",
+      "kind": "learn",
+      "name": "Verse and chorus",
+      "artist": "Ramones",
+      "title": "Blitzkrieg Bop",
+      "part": "Combo 2",
+      "start": 41.5,
+      "end": 75.4,
+      "pass": 0.8,
+      "about": "Thirty-four seconds of nonstop downstrokes: the whole verse into the chorus. The chorus brings in D5 for longer and adds B5 at the end. Stamina is the real test here.",
+      "how": [
+        "Same shapes as the verse; B5 is the second and fourth frets of the A and D strings.",
+        "In the chorus the A5 and D5 swap back and forth. Keep your first finger moving between the low E and A strings.",
+        "If your arm tires, keep strumming lighter rather than stopping.",
+        "Slower on the first go is fine. Then build back to full speed."
+      ]
+    }
+  ]
+}

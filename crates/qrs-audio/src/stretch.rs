@@ -1,5 +1,6 @@
-//! Slow-down (and speed-up) without changing pitch, with Signalsmith Stretch (MIT, in-process; DECISIONS D4).
-//! Replaces rsplay/stretch.py's Rubber Band pieces with the same scheme:
+//! Slow-down (and speed-up) without changing pitch, and pitch shift without changing speed (P20.3), with
+//! Signalsmith Stretch (MIT, in-process; DECISIONS D4). Replaces rsplay/stretch.py's Rubber Band pieces with the
+//! same scheme:
 //!
 //! The song is cut into pieces of `CHUNK` seconds of *output* that worker threads stretch, starting with the piece
 //! under the playhead and working outwards, so playback resumes about a second after a speed change. Each piece is
@@ -29,17 +30,43 @@ pub const SLOT: f64 = 0.1;
 
 pub const MIN_SPEED: f64 = 0.25;
 pub const MAX_SPEED: f64 = 1.5;
+/// Pitch shift range (semitones).
+pub const MAX_SEMITONES: i32 = 12;
 
-/// Stretch a short clip in one go (previews, the selection synth). `speed` < 1 slows down.
-pub fn stretch_clip(stereo: &[f32], rate: u32, speed: f64) -> Vec<f32> {
-    if (speed - 1.0).abs() < 1e-6 || stereo.is_empty() {
+/// A stretcher for stereo at `rate`, transposed by `semitones`.
+/// The pitch shifter's analysis block and hop (seconds). The library's default (0.12 / 0.03) leaves a held tone up to
+/// 8 cents off after a shift; 0.2 / 0.05 measured within 6 cents at -12 and 0-3 cents for -5..+12 (pure tones).
+const SHIFT_BLOCK: f32 = 0.2;
+const SHIFT_HOP: f32 = 0.05;
+
+fn stretcher(rate: u32, semitones: f32) -> signalsmith_stretch::Stretch {
+    let mut s = if semitones != 0.0 {
+        let r = rate as f32;
+        signalsmith_stretch::Stretch::new(2, (r * SHIFT_BLOCK) as usize, (r * SHIFT_HOP) as usize)
+    } else {
+        signalsmith_stretch::Stretch::preset_default(2, rate)
+    };
+    transpose(&mut s, rate, semitones);
+    s
+}
+
+fn transpose(s: &mut signalsmith_stretch::Stretch, rate: u32, semitones: f32) {
+    if semitones != 0.0 {
+        // above ~8 kHz the shifter stops keeping partials tonal (the library's advice for music)
+        s.set_transpose_factor_semitones(semitones, Some(8000.0 / rate as f32));
+    }
+}
+
+/// Stretch a short clip in one go (previews, the selection synth). `speed` < 1 slows down; `semitones` shifts the
+/// pitch (0: unchanged).
+pub fn stretch_clip(stereo: &[f32], rate: u32, speed: f64, semitones: f32) -> Vec<f32> {
+    if ((speed - 1.0).abs() < 1e-6 && semitones == 0.0) || stereo.is_empty() {
         return stereo.to_vec();
     }
     let frames = stereo.len() / 2;
     let out_frames = (frames as f64 / speed).round() as usize;
     let mut out = vec![0.0f32; out_frames * 2];
-    let mut s = signalsmith_stretch::Stretch::preset_default(2, rate);
-    s.exact(stereo, &mut out);
+    stretcher(rate, semitones).exact(stereo, &mut out);
     out
 }
 
@@ -61,9 +88,10 @@ struct Plan {
     pieces: usize,
 }
 
-/// A song being stretched to one speed in the background.
+/// A song being stretched to one speed (and pitch) in the background.
 pub struct StretchJob {
     pub speed: f64,
+    pub semitones: f32,
     pub buffer: Arc<StretchBuffer>,
     cancel: Arc<AtomicBool>,
     workers: Vec<JoinHandle<()>>,
@@ -72,6 +100,12 @@ pub struct StretchJob {
 impl StretchJob {
     /// Start stretching `song` to `speed`, beginning with the piece that plays song time `from`.
     pub fn start(song: Arc<SongBuffer>, speed: f64, from: f64) -> StretchJob {
+        Self::start_shifted(song, speed, 0.0, from)
+    }
+
+    /// As `start`, also shifting the pitch by `semitones` (speed 1 with a shift is a pitch shift alone).
+    pub fn start_shifted(song: Arc<SongBuffer>, speed: f64, semitones: f32, from: f64) -> StretchJob {
+        let semitones = semitones.clamp(-(MAX_SEMITONES as f32), MAX_SEMITONES as f32);
         let speed = speed.clamp(MIN_SPEED, MAX_SPEED);
         let rate = song.rate;
         let in_frames = song.frames();
@@ -124,7 +158,7 @@ impl StretchJob {
                 std::thread::Builder::new()
                     .name("qrs-stretch".into())
                     .spawn(move || {
-                        let mut stretch = signalsmith_stretch::Stretch::preset_default(2, plan.rate);
+                        let mut stretch = stretcher(plan.rate, semitones);
                         loop {
                             if cancel.load(Ordering::Acquire) {
                                 return;
@@ -132,6 +166,7 @@ impl StretchJob {
                             let i = next.fetch_add(1, Ordering::AcqRel);
                             let Some(&piece) = order.get(i) else { return };
                             stretch.reset();
+                            transpose(&mut stretch, plan.rate, semitones);
                             do_piece(&song, &plan, &buffer, &zones, &mut stretch, piece);
                         }
                     })
@@ -140,6 +175,7 @@ impl StretchJob {
             .collect();
         StretchJob {
             speed,
+            semitones,
             buffer,
             cancel,
             workers,
@@ -157,14 +193,20 @@ impl StretchJob {
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
+
+    /// Whether the audio from song time `t` on (a couple of seconds of it) is ready to play.
+    pub fn ready_at(&self, t: f64) -> bool {
+        let f = (t.max(0.0) / self.speed * self.buffer.rate as f64) as usize;
+        self.buffer.is_ready(f, f + 2 * self.buffer.rate as usize)
+    }
 }
 
+/// Cancelled, the workers stop after the piece they're on (up to ~0.5 s): they're let go rather than waited for,
+/// since a job is dropped on the UI thread (a speed change) and they hold their own references to all they use.
 impl Drop for StretchJob {
     fn drop(&mut self) {
         self.cancel();
-        for w in self.workers.drain(..) {
-            let _ = w.join();
-        }
+        self.workers.clear(); // (detached)
     }
 }
 
@@ -364,11 +406,73 @@ mod tests {
         assert!((r_mid / r_in - 1.0).abs() < 0.08, "{r_in} {r_mid}");
     }
 
+    /// A speed change drops the running job on the UI thread: that mustn't wait for its workers' pieces.
+    #[test]
+    fn dropping_a_running_job_does_not_wait_for_it() {
+        let job = StretchJob::start(Arc::new(tone(50.0)), 0.5, 0.0);
+        std::thread::sleep(std::time::Duration::from_millis(30)); // (the workers are mid-piece)
+        let t0 = std::time::Instant::now();
+        drop(job);
+        assert!(t0.elapsed().as_millis() < 50, "{:?}", t0.elapsed());
+    }
+
+    /// Frequency of a steady tone from its upward zero crossings (interpolated), over interleaved stereo frames.
+    fn freq(at: impl Fn(usize) -> f32, a: usize, b: usize, rate: f64) -> f64 {
+        let mut cross = Vec::new();
+        for f in a..b {
+            let (x0, x1) = (at(f), at(f + 1));
+            if x0 < 0.0 && x1 >= 0.0 {
+                cross.push(f as f64 + (x0 / (x0 - x1)) as f64);
+            }
+        }
+        let n = cross.len() - 1;
+        n as f64 / ((cross[n] - cross[0]) / rate)
+    }
+
+    #[test]
+    fn pitch_shift_moves_a_tone_and_keeps_the_length() {
+        // +7 semitones on a clip: 330 Hz -> 494.4 Hz, same length
+        let x: Vec<f32> = (0..96000)
+            .flat_map(|i| {
+                let v = (i as f64 * 330.0 / 48000.0 * std::f64::consts::TAU).sin() as f32 * 0.3;
+                [v, v]
+            })
+            .collect();
+        let y = stretch_clip(&x, 48000, 1.0, 7.0);
+        assert_eq!(y.len(), x.len());
+        let f = freq(|i| y[2 * i], 20000, 76000, 48000.0);
+        let want = 330.0 * 2f64.powf(7.0 / 12.0);
+        assert!((1200.0 * (f / want).log2()).abs() < 4.0, "{f} vs {want}");
+
+        // the whole-song job at speed 1, down 5 semitones, across a piece boundary
+        let job = StretchJob::start_shifted(Arc::new(tone(25.0)), 1.0, -5.0, 0.0);
+        let t0 = std::time::Instant::now();
+        while !job.done() && t0.elapsed().as_secs() < 120 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(job.done());
+        let b = &job.buffer;
+        assert_eq!(b.frames, 25 * 48000, "length kept");
+        assert!(job.ready_at(10.0));
+        let want = 330.0 * 2f64.powf(-5.0 / 12.0);
+        for (a, z) in [(48000, 5 * 48000), (19 * 48000, 21 * 48000)] {
+            let f = freq(|i| b.sample(2 * i), a, z, 48000.0);
+            assert!((1200.0 * (f / want).log2()).abs() < 4.0, "{f} vs {want}");
+        }
+        // every step of the range lands within a few cents (a pure tone is the hardest case)
+        for st in [-12.0f32, -1.0, 1.0, 5.0, 12.0] {
+            let y = stretch_clip(&x, 48000, 1.0, st);
+            let f = freq(|i| y[2 * i], 20000, 76000, 48000.0);
+            let cents = 1200.0 * (f / (330.0 * 2f64.powf(st as f64 / 12.0))).log2();
+            assert!(cents.abs() < 8.0, "{st}: {f} ({cents} cents)");
+        }
+    }
+
     #[test]
     fn clip_stretch_length() {
         let x = vec![0.1f32; 48000 * 2];
         assert_eq!(
-            stretch_clip(&x, 48000, 0.7).len() / 2,
+            stretch_clip(&x, 48000, 0.7, 0.0).len() / 2,
             (48000.0 / 0.7f64).round() as usize
         );
     }

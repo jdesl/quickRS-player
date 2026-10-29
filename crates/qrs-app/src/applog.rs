@@ -36,6 +36,11 @@ pub fn init(cache: PathBuf) {
     }));
 }
 
+/// Where the log is (none before `init`).
+pub fn path() -> Option<PathBuf> {
+    PATH.get().cloned()
+}
+
 pub fn write(msg: &str) {
     let Some(path) = PATH.get() else { return };
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {

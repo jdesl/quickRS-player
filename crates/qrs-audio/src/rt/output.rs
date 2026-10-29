@@ -1,13 +1,18 @@
 //! The output callback's work: the song transport, preview clips, the monitored guitar, a soft limiter, the song
 //! clock. Times given to commands are song seconds at the original tempo; the playing buffer is either the song
-//! itself or a slowed-down copy whose frame f plays song time f / rate * speed.
+//! itself or a slowed-down copy whose frame f plays song time f / rate * speed. The song fades in when it starts and
+//! out when it's paused (DECLICK), so neither clicks (note by note pauses it at every note).
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use super::jam::Jam;
 use super::{Clip, OutCmd, Ramp, Shared, StretchBuffer, Trash, discard};
 use crate::clock::{SongClock, now_ns};
 use crate::decode::SongBuffer;
+
+/// Seconds the song fades over when it starts or is paused (at most a block: a shorter block fades over itself).
+pub const DECLICK: f64 = 0.005;
 
 /// Where the monitored guitar comes from.
 pub enum MonitorSource {
@@ -22,10 +27,14 @@ pub enum MonitorSource {
 /// sample more or less is taken per block (and stretched to the block, inaudibly) instead of leaving gaps. After a
 /// stall it skips ahead; when it runs dry it goes quiet for a block and refills.
 pub struct Cushion {
+    /// Frames of (toned, dry) pairs.
     pub rx: rtrb::Consumer<f32>,
+    /// Frames.
     pub target: usize,
     primed: bool,
     fill: f64,
+    /// Frames waiting before the last pull (the looper's round trip counts them).
+    pub last_fill: usize,
     scratch: Vec<f32>,
 }
 
@@ -36,22 +45,24 @@ impl Cushion {
             target,
             primed: false,
             fill: 0.0,
-            scratch: vec![0.0; max_block + 8],
+            last_fill: 0,
+            scratch: vec![0.0; (max_block + 8) * 2],
         }
     }
 
     /// Fill `out` (mono, `frames` samples); false when there's nothing to play this block.
-    fn pull(&mut self, out: &mut [f32], gaps: &std::sync::atomic::AtomicU32) -> bool {
-        let frames = out.len();
+    fn pull(&mut self, out: &mut [f32], dry: &mut [f32], gaps: &std::sync::atomic::AtomicU32) -> bool {
+        let frames = out.len().min(dry.len());
         let target = self.target;
-        let mut avail = self.rx.slots();
+        let mut avail = self.rx.slots() / 2;
         if avail > target + 8 * frames {
             // long stall on the output side: skip ahead to the target fill
-            if let Ok(c) = self.rx.read_chunk(avail - target) {
+            if let Ok(c) = self.rx.read_chunk((avail - target) * 2) {
                 c.commit_all();
             }
             avail = target;
         }
+        self.last_fill = avail;
         if !self.primed {
             if avail < target {
                 return false; // still filling
@@ -71,24 +82,29 @@ impl Cushion {
         } else if self.fill < target as f64 - 48.0 && frames > 1 {
             take = frames - 1;
         }
-        let take = take.min(self.scratch.len());
-        let Ok(chunk) = self.rx.read_chunk(take) else {
+        let take = take.min(self.scratch.len() / 2);
+        let Ok(chunk) = self.rx.read_chunk(take * 2) else {
             return false;
         };
         let (a, b) = chunk.as_slices();
         self.scratch[..a.len()].copy_from_slice(a);
         self.scratch[a.len()..a.len() + b.len()].copy_from_slice(b);
         chunk.commit_all();
+        let s = &self.scratch;
         if take == frames {
-            out.copy_from_slice(&self.scratch[..frames]);
+            for i in 0..frames {
+                out[i] = s[2 * i];
+                dry[i] = s[2 * i + 1];
+            }
         } else {
             let scale = (take - 1) as f32 / (frames - 1).max(1) as f32;
-            for (i, o) in out.iter_mut().enumerate() {
+            for i in 0..frames {
                 let p = i as f32 * scale;
                 let k = (p as usize).min(take - 1);
                 let frac = p - k as f32;
-                let b = self.scratch[(k + 1).min(take - 1)];
-                *o = self.scratch[k] + (b - self.scratch[k]) * frac;
+                let k1 = (k + 1).min(take - 1);
+                out[i] = s[2 * k] + (s[2 * k1] - s[2 * k]) * frac;
+                dry[i] = s[2 * k + 1] + (s[2 * k1 + 1] - s[2 * k + 1]) * frac;
             }
         }
         true
@@ -179,6 +195,10 @@ pub struct OutputSide {
     /// Frames into the playing buffer (the song, or the stretched copy).
     frame: usize,
     playing: bool,
+    /// The song starts from silence in the next block it plays.
+    fade_in: bool,
+    /// Paused: the next block fades the song out, then it stops.
+    fade_out: bool,
     song_gain: Ramp,
     guitar_gain: Ramp,
     monitor_on: bool,
@@ -187,12 +207,23 @@ pub struct OutputSide {
     preview_old: Option<Preview>,
     /// The newest preview id taken from the queue (published after the clip's state).
     preview_taken: u64,
+    /// A seek mark taken from the queue, published with the next clock.
+    mark: Option<u64>,
     /// Which output channels get the stereo mix (RS_ASIO's BaseChannel).
     pub base_channel: usize,
     /// Output latency beyond what the backend's timestamps include (seconds).
     pub extra_latency: f64,
+    /// The guitar's round trip in frames (played to heard), for the looper: set by the duplex callback, or
+    /// measured here through the cushion.
+    pub guitar_delay: u64,
+    /// The metronome, drums, backing, looper and Rewind.
+    jam: Jam,
+    /// The record tap (P23.9): what's heard, written after the limiter.
+    record: Option<Arc<super::record::RecordTap>>,
+    rec: Vec<f32>,
     mix: Vec<f32>,
     guitar: Vec<f32>,
+    guitar_dry: Vec<f32>,
 }
 
 impl OutputSide {
@@ -216,16 +247,24 @@ impl OutputSide {
             speed: state.speed,
             frame: 0,
             playing: state.playing,
+            fade_in: state.playing,
+            fade_out: false,
             song_gain: Ramp::new(state.song_gain),
             guitar_gain: Ramp::new(state.guitar_gain),
             monitor_on: state.monitor,
             preview: None,
             preview_old: None,
             preview_taken: 0,
+            mark: None,
             base_channel: 0,
             extra_latency: 0.0,
+            guitar_delay: 0,
+            jam: Jam::new(rate, max_block.max(64)),
+            record: None,
+            rec: vec![0.0; max_block.max(64) * 2],
             mix: vec![0.0; max_block.max(64) * 2],
             guitar: vec![0.0; max_block.max(64)],
+            guitar_dry: vec![0.0; max_block.max(64)],
         };
         o.frame = o.frame_for(state.position);
         o.publish(now_ns(), 0);
@@ -272,6 +311,14 @@ impl OutputSide {
                     self.speed = 1.0;
                     self.frame = 0;
                     self.playing = false;
+                    self.fade_in = false;
+                    self.fade_out = false;
+                }
+                OutCmd::Replace(s) => {
+                    if let Some(old) = self.song.replace(s) {
+                        discard(&mut self.trash, Trash::Song(old));
+                    }
+                    self.frame = self.frame.min(self.song_len());
                 }
                 OutCmd::Play(from) => {
                     if self.song.is_some() {
@@ -280,11 +327,18 @@ impl OutputSide {
                         } else if self.finished() {
                             self.frame = 0;
                         }
+                        // from silence; or, if a pause hasn't faded it out yet, it just carries on
+                        self.fade_in = !self.playing;
+                        self.fade_out = false;
                         self.playing = true;
                     }
                 }
-                OutCmd::Pause => self.playing = false,
+                OutCmd::Pause => {
+                    self.fade_out = self.playing;
+                    self.fade_in = false;
+                }
                 OutCmd::Seek(t) => self.frame = self.frame_for(t),
+                OutCmd::Mark(n) => self.mark = Some(n),
                 OutCmd::Speed(speed, buf) => {
                     let t = self.time_of(self.frame);
                     if let Some(old) = std::mem::replace(&mut self.stretched, buf) {
@@ -330,6 +384,12 @@ impl OutputSide {
                         discard(&mut self.trash, Trash::Cushion(Box::new(old)));
                     }
                 }
+                OutCmd::Jam(c) => self.jam.command(c, &mut self.trash),
+                OutCmd::Record(t) => {
+                    if let Some(old) = std::mem::replace(&mut self.record, t) {
+                        discard(&mut self.trash, Trash::Record(old));
+                    }
+                }
                 OutCmd::StopPreview { now } => {
                     if now {
                         for old in [self.preview.take(), self.preview_old.take()]
@@ -346,31 +406,60 @@ impl OutputSide {
         }
     }
 
-    /// Mix the song into the stereo scratch; returns false while the slowed-down audio here isn't ready.
+    /// Mix the song into the stereo scratch; returns false while the slowed-down audio here isn't ready. Fades it
+    /// in on the block it starts and out on the block it's paused in (stopping where the fade ends).
     fn mix_song(&mut self, frames: usize) -> bool {
         if !self.playing {
             return true;
         }
         let start = self.frame;
         let len = self.song_len();
-        let n = frames.min(len.saturating_sub(start));
+        let mut n = frames.min(len.saturating_sub(start));
+        let fade = ((self.rate as f64 * DECLICK) as usize).clamp(1, frames.max(1));
+        let (fade_in, fade_out) = (self.fade_in, self.fade_out);
+        if fade_out {
+            n = n.min(fade);
+        }
+        // the fade's gain at frame i of the block
+        let env = |i: usize| -> f32 {
+            if fade_out {
+                (1.0 - (i + 1) as f32 / fade as f32).max(0.0)
+            } else if fade_in {
+                ((i + 1) as f32 / fade as f32).min(1.0)
+            } else {
+                1.0
+            }
+        };
         let (g0, step) = self.song_gain.block(frames);
         if let Some(st) = &self.stretched {
             if !st.is_ready(start, start + frames) {
+                if fade_out {
+                    // nothing is being heard: stop now
+                    self.playing = false;
+                    self.fade_out = false;
+                    return true;
+                }
                 return false;
             }
             for i in 0..n {
-                let g = g0 + step * i as f32;
+                let g = (g0 + step * i as f32) * env(i);
                 self.mix[2 * i] += st.sample(2 * (start + i)) * g;
                 self.mix[2 * i + 1] += st.sample(2 * (start + i) + 1) * g;
             }
         } else if let Some(song) = &self.song {
             let s = &song.samples[2 * start..2 * (start + n)];
             for i in 0..n {
-                let g = (g0 + step * i as f32) / 32768.0;
+                let g = (g0 + step * i as f32) * env(i) / 32768.0;
                 self.mix[2 * i] += s[2 * i] as f32 * g;
                 self.mix[2 * i + 1] += s[2 * i + 1] as f32 * g;
             }
+        }
+        self.fade_in = false;
+        if fade_out {
+            self.frame = start + n;
+            self.playing = false;
+            self.fade_out = false;
+            return true;
         }
         self.frame = start + frames;
         if self.frame >= len {
@@ -424,6 +513,9 @@ impl OutputSide {
             playing: self.playing,
         };
         sh.clock.store(&clock);
+        if let Some(n) = self.mark.take() {
+            sh.seek_mark.store(n, Ordering::Release);
+        }
         sh.frame.store(self.frame as u64, Ordering::Relaxed);
         sh.playing.store(self.playing, Ordering::Relaxed);
         sh.finished.store(self.finished(), Ordering::Relaxed);
@@ -467,7 +559,7 @@ impl OutputSide {
         out: &mut [f32],
         channels: usize,
         play_ns: u64,
-        duplex_guitar: Option<&[f32]>,
+        duplex_guitar: Option<(&[f32], &[f32])>,
     ) {
         let t0 = now_ns();
         self.apply_commands();
@@ -483,20 +575,55 @@ impl OutputSide {
         sh.buffering.store(was_playing && !ready, Ordering::Relaxed);
         self.mix_preview(frames);
 
-        // the guitar
+        // the guitar (toned, and dry for the looper and Rewind)
         let mut have_guitar = false;
         match (&mut self.monitor, duplex_guitar) {
-            (MonitorSource::Duplex, Some(g)) if !g.is_empty() => {
-                let n = g.len().min(frames);
+            (MonitorSource::Duplex, Some((g, d))) if !g.is_empty() => {
+                let n = g.len().min(d.len()).min(frames);
                 self.guitar[..n].copy_from_slice(&g[..n]);
+                self.guitar_dry[..n].copy_from_slice(&d[..n]);
                 self.guitar[n..frames].fill(0.0);
+                self.guitar_dry[n..frames].fill(0.0);
                 have_guitar = true;
             }
             (MonitorSource::Cushion(c), _) => {
-                have_guitar = c.pull(&mut self.guitar[..frames], &sh.mon_gaps) && self.monitor_on;
+                have_guitar = c.pull(
+                    &mut self.guitar[..frames],
+                    &mut self.guitar_dry[..frames],
+                    &sh.mon_gaps,
+                );
+                if have_guitar {
+                    // played (the newest sample, less what's waiting) to heard
+                    let heard = play_ns as f64 + self.extra_latency * 1e9;
+                    let played = sh.in_newest_ns.load(Ordering::Relaxed) as f64
+                        - c.last_fill as f64 / self.rate as f64 * 1e9;
+                    let d = ((heard - played).max(0.0) * 1e-9 * self.rate as f64) as u64;
+                    // smoothed: the input's blocks arrive in bursts
+                    self.guitar_delay = if self.guitar_delay == 0 {
+                        d
+                    } else {
+                        (self.guitar_delay * 15 + d) / 16
+                    };
+                }
             }
             _ => {}
         }
+        if !have_guitar {
+            self.guitar[..frames].fill(0.0);
+            self.guitar_dry[..frames].fill(0.0);
+        }
+        // the jam plays with the song, and takes the guitar as heard (whether it's monitored or not)
+        self.jam.delay = self.guitar_delay;
+        let wall = (play_ns as f64 + self.extra_latency * 1e9).max(0.0) as u64;
+        self.jam.process(
+            &mut self.mix[..2 * frames],
+            &self.guitar[..frames],
+            &self.guitar_dry[..frames],
+            frames,
+            wall,
+            &sh.jam,
+            &mut self.trash,
+        );
         let (gg0, gstep) = self.guitar_gain.block(frames);
         if have_guitar && self.monitor_on {
             for i in 0..frames {
@@ -506,12 +633,24 @@ impl OutputSide {
             }
         }
 
-        // limit and write out
+        // limit and write out; a recording takes the same, plus the guitar when it isn't heard from here (it's
+        // monitored by the interface or an amp modeller: what you hear is still your guitar)
         let mut peak = 0.0f32;
         out.fill(0.0);
+        let unheard = have_guitar && !self.monitor_on;
         for i in 0..frames {
             let l = soft_clip(self.mix[2 * i]);
             let r = soft_clip(self.mix[2 * i + 1]);
+            if self.record.is_some() {
+                let (a, b) = if unheard {
+                    let g = self.guitar[i] * (gg0 + gstep * i as f32);
+                    (soft_clip(self.mix[2 * i] + g), soft_clip(self.mix[2 * i + 1] + g))
+                } else {
+                    (l, r)
+                };
+                self.rec[2 * i] = a;
+                self.rec[2 * i + 1] = b;
+            }
             peak = peak.max(l.abs()).max(r.abs());
             let f = &mut out[i * channels..i * channels + channels];
             if channels == 1 {
@@ -521,6 +660,9 @@ impl OutputSide {
                 f[b] = l;
                 f[b + 1] = r;
             }
+        }
+        if let Some(tap) = &self.record {
+            tap.write(&self.rec[..2 * frames]);
         }
         sh.out_peak.set(peak.max(sh.out_peak.get() * 0.95));
         self.publish(play_ns, frames);
@@ -550,6 +692,65 @@ mod tests {
         assert_eq!(soft_clip(0.5), 0.5);
         assert!(soft_clip(10.0) <= 1.0 && soft_clip(10.0) > 0.99);
         assert!((soft_clip(-0.9) + soft_clip(0.9)).abs() < 1e-7);
+    }
+
+    /// A loud steady song paused and started again: no step in the output bigger than the fade's, and the pause
+    /// lands within the fade of where it was asked for.
+    #[test]
+    fn pause_and_play_fade_the_song() {
+        let shared = Arc::new(Shared::new(12));
+        let (mut tx, rx) = rtrb::RingBuffer::<OutCmd>::new(16);
+        let (trash, _trash_rx) = rtrb::RingBuffer::<Trash>::new(16);
+        let song = SongBuffer {
+            rate: 48000,
+            samples: Arc::new(vec![16384; 48000 * 2]),
+        };
+        let mut o = OutputSide::new(
+            48000,
+            OutputState {
+                song: Some(Arc::new(song)),
+                song_gain: 1.0,
+                ..OutputState::default()
+            },
+            shared.clone(),
+            rx,
+            trash,
+            MonitorSource::None,
+            256,
+        );
+        let mut out = vec![0.0f32; 512];
+        let (mut prev, mut worst) = (0.0f32, 0.0f32);
+        let run = |o: &mut OutputSide, out: &mut Vec<f32>, prev: &mut f32, worst: &mut f32| {
+            o.process(out, 2, 0);
+            for f in out.chunks(2) {
+                *worst = worst.max((f[0] - *prev).abs());
+                *prev = f[0];
+            }
+        };
+        assert!(tx.push(OutCmd::Play(None)).is_ok());
+        for _ in 0..4 {
+            run(&mut o, &mut out, &mut prev, &mut worst);
+        }
+        assert!((prev - 0.5).abs() < 1e-3, "playing at {prev}");
+        let at = o.frame;
+        assert!(tx.push(OutCmd::Pause).is_ok());
+        run(&mut o, &mut out, &mut prev, &mut worst);
+        assert!(!o.playing && prev == 0.0, "paused");
+        let fade = (48000.0 * DECLICK) as usize;
+        assert!(o.frame - at <= fade, "stopped {} frames on", o.frame - at);
+        assert!(tx.push(OutCmd::Play(None)).is_ok());
+        for _ in 0..2 {
+            run(&mut o, &mut out, &mut prev, &mut worst);
+        }
+        assert!((prev - 0.5).abs() < 1e-3, "playing again at {prev}");
+        // a cut would be a step of 0.5; the fades are 240 frames long
+        assert!(worst < 0.5 / 200.0, "largest step {worst}");
+        // paused and played again before the fade-out was heard: it just carries on
+        assert!(tx.push(OutCmd::Pause).is_ok());
+        assert!(tx.push(OutCmd::Play(None)).is_ok());
+        run(&mut o, &mut out, &mut prev, &mut worst);
+        assert!(o.playing && (prev - 0.5).abs() < 1e-3);
+        assert!(worst < 0.5 / 200.0, "largest step {worst}");
     }
 
     #[test]
@@ -602,5 +803,104 @@ mod tests {
         o.process(&mut out, 2, 0);
         assert_eq!(shared.preview_id.load(Relaxed), 0);
         assert_eq!(shared.preview_started.load(Relaxed), 2);
+    }
+
+    /// A new stem mix replaces the song where it is: the playhead and play state stay, the old buffer goes to the
+    /// trash (not freed here), and what's heard is the new mix.
+    #[test]
+    fn a_replaced_song_keeps_its_place() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let shared = Arc::new(Shared::new(12));
+        let (mut tx, rx) = rtrb::RingBuffer::<OutCmd>::new(16);
+        let (trash, mut trash_rx) = rtrb::RingBuffer::<Trash>::new(16);
+        let song = |v: i16| {
+            Arc::new(SongBuffer {
+                rate: 48000,
+                samples: Arc::new(vec![v; 48000 * 2]),
+            })
+        };
+        let mut o = OutputSide::new(
+            48000,
+            OutputState {
+                song: Some(song(1000)),
+                song_gain: 1.0,
+                ..Default::default()
+            },
+            shared.clone(),
+            rx,
+            trash,
+            MonitorSource::None,
+            256,
+        );
+        assert!(tx.push(OutCmd::Play(Some(0.25))).is_ok());
+        let mut out = vec![0.0f32; 512];
+        o.process(&mut out, 2, 0);
+        let before = shared.frame.load(Relaxed);
+        assert!(tx.push(OutCmd::Replace(song(8000))).is_ok());
+        o.process(&mut out, 2, 0);
+        assert!(shared.playing.load(Relaxed));
+        assert_eq!(shared.frame.load(Relaxed), before + 256);
+        assert!((out[510] - 8000.0 / 32768.0).abs() < 0.01, "{}", out[510]);
+        assert!(matches!(trash_rx.pop(), Ok(Trash::Song(_))));
+    }
+
+    /// The record tap (P23.9) gets exactly what's played, with no allocator call on the audio thread; a tap
+    /// replaced or stopped leaves through the trash.
+    #[test]
+    fn the_record_tap_gets_what_is_heard_without_allocating() {
+        use super::super::record::RecordTap;
+        let shared = Arc::new(Shared::new(12));
+        let (mut tx, rx) = rtrb::RingBuffer::<OutCmd>::new(16);
+        let (trash, mut trash_rx) = rtrb::RingBuffer::<Trash>::new(16);
+        let song = SongBuffer {
+            rate: 48000,
+            samples: Arc::new(
+                (0..48000 * 2)
+                    .map(|i| if (i / 2) % 3 == 0 { 16384 } else { -8000 })
+                    .collect(),
+            ),
+        };
+        let mut o = OutputSide::new(
+            48000,
+            OutputState {
+                song: Some(Arc::new(song)),
+                song_gain: 1.0,
+                ..OutputState::default()
+            },
+            shared,
+            rx,
+            trash,
+            MonitorSource::None,
+            256,
+        );
+        let tap = Arc::new(RecordTap::new(48000, 1.0));
+        assert!(tx.push(OutCmd::Play(None)).is_ok());
+        assert!(tx.push(OutCmd::Record(Some(tap.clone()))).is_ok());
+        let mut out = vec![0.0f32; 2 * 300];
+        let mut heard: Vec<f32> = Vec::new();
+        crate::alloc_count::watch();
+        for _ in 0..20 {
+            o.process(&mut out, 2, 0);
+            // (the first blocks only: `heard` grows, which the counter would see)
+            if heard.len() < 2 * 300 {
+                crate::alloc_count::calls();
+                heard.extend_from_slice(&out);
+                crate::alloc_count::watch();
+            }
+        }
+        let calls = crate::alloc_count::calls();
+        assert_eq!(calls, 0, "allocator calls on the audio thread");
+        assert_eq!(tap.written(), 20 * 300);
+        let mut got = Vec::new();
+        assert!(tap.read_into(0, 300, &mut got));
+        for (k, (g, h)) in got.iter().zip(&heard).enumerate() {
+            let want = (h * 32767.0).round() as i16;
+            assert!((g - want).abs() <= 1, "{k}: {g} vs {want}");
+        }
+        assert!(heard.iter().any(|v| v.abs() > 0.1), "the song played");
+        assert!(tx.push(OutCmd::Record(None)).is_ok());
+        o.process(&mut out, 2, 0);
+        assert_eq!(tap.written(), 20 * 300, "nothing more once stopped");
+        assert!(matches!(trash_rx.pop(), Ok(Trash::Record(_))));
     }
 }

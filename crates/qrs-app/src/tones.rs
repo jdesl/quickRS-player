@@ -1,16 +1,19 @@
 //! The guitar tone in config.json, in the Python app's keys (so both apps read the same file): `tone_v2` is the
-//! tone's name ("as is", "clean", "crunch", "lead", "custom"; quickRS adds "bass" and "acoustic", which the Python
-//! app reads as "as is"), `tone_custom` the custom tone's knobs, `tone_presets` the saved tones by name and
-//! `tone_preset` the one last chosen (port of the tone half of rsplay/settingsview.py and engine.TONES).
+//! tone's name ("as is", "clean", "crunch", "lead", "custom"; quickRS adds "bass", "acoustic" and "board", which
+//! the Python app reads as "as is"), `tone_custom` the custom tone's knobs, `tone_presets` the saved tones by name
+//! and `tone_preset` the one last chosen (port of the tone half of rsplay/settingsview.py and engine.TONES). The
+//! pedalboard's own keys are in `pedalboard.rs` (D26).
 
 use qrs_audio::tone::{KNOBS, Preset, ToneParams, ToneSpec};
 use qrs_library::Config;
 use serde_json::{Map, Value};
 
 /// Every tone, in the order the settings page shows them.
-pub const TONES: [&str; 7] = ["as is", "clean", "crunch", "lead", "bass", "acoustic", "custom"];
-/// What the T key steps through (the Python app's TONES).
-const CYCLE: [&str; 5] = ["as is", "clean", "crunch", "lead", "custom"];
+pub const TONES: [&str; 8] = [
+    "as is", "board", "clean", "crunch", "lead", "bass", "acoustic", "custom",
+];
+/// What the T key steps through (the Python app's TONES, and the pedalboard).
+const CYCLE: [&str; 6] = ["as is", "board", "clean", "crunch", "lead", "custom"];
 
 pub fn label(name: &str) -> &'static str {
     match name {
@@ -20,6 +23,7 @@ pub fn label(name: &str) -> &'static str {
         "bass" => "Bass",
         "acoustic" => "Acoustic",
         "custom" => "Custom",
+        "board" => "Pedalboard",
         _ => "As is",
     }
 }
@@ -35,6 +39,7 @@ pub fn name_of(spec: &ToneSpec) -> &'static str {
             Preset::Acoustic => "acoustic",
         },
         ToneSpec::Custom { .. } => "custom",
+        ToneSpec::Board { .. } => "board",
     }
 }
 
@@ -47,8 +52,21 @@ pub fn spec_of(name: &str, custom: ToneParams) -> ToneSpec {
         "bass" => preset(Preset::Bass),
         "acoustic" => preset(Preset::Acoustic),
         "custom" => ToneSpec::Custom { params: custom },
+        "board" => ToneSpec::Board {
+            board: qrs_audio::board::presets().swap_remove(0).1,
+        },
         _ => ToneSpec::AsIs,
     }
+}
+
+/// The tone named, with the pedalboard as config.json keeps it.
+pub fn spec_for(cfg: &Config, name: &str) -> ToneSpec {
+    if name == "board" {
+        return ToneSpec::Board {
+            board: crate::pedalboard::my_board(cfg),
+        };
+    }
+    spec_of(name, custom(cfg))
 }
 
 /// The tone after this one on the T key.
@@ -78,7 +96,7 @@ pub fn params_json(p: &ToneParams) -> Value {
 
 /// The tone named in config.json.
 pub fn current(cfg: &Config) -> ToneSpec {
-    spec_of(&cfg.str("tone_v2", "as is"), custom(cfg))
+    spec_for(cfg, &cfg.str("tone_v2", "as is"))
 }
 
 pub fn store(cfg: &mut Config, spec: &ToneSpec) {
@@ -165,6 +183,7 @@ mod tests {
         assert!(presets(&c).is_empty() && c.get("tone_preset").is_none());
         assert_eq!(next("lead"), "custom");
         assert_eq!(next("custom"), "as is");
+        assert_eq!(next("as is"), "board");
         assert_eq!(next("bass"), "as is");
         for t in TONES {
             assert_eq!(name_of(&spec_of(t, p)), t);

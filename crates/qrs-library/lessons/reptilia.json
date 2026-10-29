@@ -1,0 +1,482 @@
+{
+  "id": "reptilia",
+  "course": "Songs",
+  "course_order": 1,
+  "number": 2,
+  "title": "Reptilia",
+  "summary": "The Strokes' two-guitar machine, learned from the tab in long pieces: the riff, Albert's chords, the breakdown and the hook, the middle with the solo, and two theory lessons on Dorian, chord tones and how the parts fit.",
+  "intro": [
+    "Reptilia is from The Strokes' second album, Room on Fire (2003), and came out as a single in February 2004. Two guitars lock together over a driving bass: Nick Valensi plays the single-note lines and the solo, Albert Hammond Jr. plays the chords. Valensi called it 'two guitars dancing around each other'. In quickRS the Lead part is Nick's all the way through and Combo is mostly Albert's.",
+    "The song is in B minor at 158 beats a minute, in steady eighth notes. Everything sits around the 7th fret: one fret up from Johnny B. Goode, so your hand already knows the area.",
+    "You learn it from the tab, in long pieces: the whole intro riff, Albert's chords under it, the breakdown and the hook in one go, his tenths under them, and the whole middle: the floating interlude, the solo and the build-up. Practise each piece with the record. When it feels good, press Record and the app checks your take.",
+    "Two theory lessons sit in between. After the intro: B minor, why the E chord is major, and the Dorian scale. After the middle: how the breakdown, the hook and the solo are built from the chords, and how to write your own. Parts that repeat are taught once; in the whole-song stage the app points out what changes as you play."
+  ],
+  "tips": [
+    "Down-strokes for the chords. Alternate picking (down, up, down, up) for the eighth-note lines and the hook.",
+    "Silence is part of the sound. Mute between notes: ease off the fretting finger and let the picking hand rest on the strings.",
+    "Crunch, not fuzz: a bright amp just starting to break up. The Strokes sound tight because the gain is low.",
+    "Every note of the riff, the hook and the breakdown is a note of the chord under it. Know the chord and you know where the riff goes.",
+    "In the breakdown and under the hook the chords change an eighth early, on the 'and'. Feel the push.",
+    "Full speed is 158 beats a minute. If a part falls apart, press Slower for a few loops, then go straight back up."
+  ],
+  "teaches": [
+    "the key of B minor on the neck: Bm and E, and the chords of B natural minor",
+    "B Dorian: natural minor with a major 6th, and the minor i to major IV vamp",
+    "B minor pentatonic, box 1 at the 7th fret (your Bb box, one fret up)",
+    "B natural minor at the 7th fret: the scale follows the chord (G over G, G# over E)",
+    "riffs and hooks built from chord tones (Bm7 and E7, then Bm F#m G A)",
+    "tenths: root on the A string, 3rd on the B string",
+    "anticipation: chords that change an eighth early",
+    "quarter-note triplets: three against two",
+    "bending to a chord tone; a repeated lick; a chromatic passing note",
+    "palm-muted eighths with accents"
+  ],
+  "builds_on": ["johnny-b-goode"],
+  "credit": "Teaching ideas paraphrased from: Andy Guitar's Reptilia lessons (the 7th-fret Bm and E barre chords and the capo shortcut, the riff's climb on the D string, muting between phrases, B minor pentatonic for the riff, B Dorian for the solo, slides in the breakdown); Guitar World's 'Around the Bends' column (bending to a scale note over Dorian). Guitar roles (Valensi lead, Hammond Jr. rhythm) as credited in community transcriptions on Ultimate Guitar. Valensi and Hammond Jr. on their parts: Guitar Magazine interview, October 2001 ('two guitars dancing', tension and release, the Velvet Underground), and Valensi's Reddit AMA as reported by Equipboard (play two notes of a chord, not the full chord). Dorian i-IV and tenths background: Soundfly Flypaper, Musicademy. Song background from Wikipedia (Reptilia; Room on Fire) and Songfacts. Bar similarity measured with tools/similar.py on the owner's chart. The tab is the owner's chart.",
+  "riffs": [
+    {
+      "id": "intro",
+      "kind": "learn",
+      "name": "The riff, the whole intro",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 23.62,
+      "end": 47.95,
+      "pass": 0.85,
+      "about": "Nick's riff through the whole intro, 16 bars, about 24 seconds: two bars low on the G and D strings over Bm, two bars climbing the A string over E, four times. The verses and choruses are the same riff, so you learn it once.",
+      "how": [
+        "Bars 1-2, over Bm: D on the G string 7th (first finger), B on the D string 9th (ring finger), A on the D string 7th (first finger).",
+        "The rhythm: 'D D, gap, D B, gap, A, gap'. Two quick down-strokes on the first two Ds.",
+        "Bars 3-4, over E: the same rhythm on the A string, 11th, 14th, 17th fret (G#, B, D). First finger on 11, then shift so the first finger takes 14 and the ring finger 17.",
+        "Shortcut: the same notes are on the D string 6th, 9th and 12th, right by your hand. Slide up with the first finger, ring finger on the top note. The app hears the pitch, so either way counts.",
+        "Mute every gap. Relax the fretting finger so it still touches the string, and let the picking hand's palm rest on the strings.",
+        "It's the same four bars four times. Let the loop carry you and keep the gaps clean."
+      ],
+      "callouts": [
+        {"at": 23.68, "text": "Bm: D D, D B, A"},
+        {"at": 26.72, "text": "E: the climb, G# G#, G# B, D"},
+        {"at": 29.75, "text": "Again: the same four bars"},
+        {"at": 35.83, "text": "Intro 2: twice more"}
+      ]
+    },
+    {
+      "id": "intro-chords",
+      "kind": "learn",
+      "name": "Albert's chords under the riff",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Combo",
+      "start": 23.62,
+      "end": 47.95,
+      "pass": 0.85,
+      "about": "Albert's part under the intro: two bars of Bm, two bars of E, straight eighth-note down-strokes, 24 seconds. The choruses are the same; in the verses he drops out.",
+      "how": [
+        "Bm: barre the 7th fret with your first finger, the E-shape minor barre: ring finger on the A string 9th, little finger on the D string 9th.",
+        "E: let the open low E ring, first finger on the A string 7th, then the D, G and B strings at the 9th (ring finger flattened, or three fingers). Leave the top E out.",
+        "Every strum is a down-stroke, eight to a bar. Keep the wrist loose and the strokes small; tension slows you down. You built this stamina on Chuck's shuffle.",
+        "16 strums of Bm, 16 of E, four times.",
+        "Barres tiring? Practise with a capo at the 7th and open Em and A shapes. The pitches are the same."
+      ],
+      "callouts": [
+        {"at": 23.68, "text": "Bm, 16 down-strokes"},
+        {"at": 26.72, "text": "E: open low E rings under it"},
+        {"at": 29.75, "text": "Bm"},
+        {"at": 32.79, "text": "E"},
+        {"at": 35.83, "text": "Intro 2: the same again"}
+      ]
+    },
+    {
+      "id": "riff-theory",
+      "kind": "theory",
+      "name": "Theory: B minor, the major IV and Dorian",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 23.62,
+      "end": 47.95,
+      "about": "The key of B minor, why the E chord is major, how the riff spells the chords, the pentatonic box you already know one fret up, and the Dorian scale. Then jam over the intro.",
+      "pages": [
+        {
+          "title": "The key: B minor",
+          "text": [
+            "Reptilia is in B minor. On your guitar that's the 7th fret of the low E string, and the whole song sits around there: Nick's riff, Albert's chords, the hook and the solo.",
+            "That's one fret up from Johnny B. Goode. What you learned at the 6th fret moves up one: same shapes, new key.",
+            "The dots show the Bs near your hand. The low E 7th, the D string 9th and the top E 7th are the ones you'll use most."
+          ],
+          "show": {"marks": [[0, 7, "B"], [1, 14, "B"], [2, 9, "B"], [3, 4, "B"], [4, 12, "B"], [5, 7, "B"]]}
+        },
+        {
+          "title": "Two chords: Bm and E",
+          "text": [
+            "You can build a minor scale and its chords. B natural minor is B C# D E F# G A. Its chords: Bm, C#dim, D, Em, F#m, G, A.",
+            "The verse is Bm and E. Bm is the i. But E major isn't on that list, Em is. E major needs a G#, and B natural minor has G.",
+            "So the song changes one note: G becomes G#. That scale is B Dorian, a minor scale with a major 6th, and its IV chord is major. Minor i to major IV and back is the Dorian sound. Santana's 'Oye Como Va' makes the same move in A.",
+            "Albert's shapes: Bm as an E-shape barre at the 7th; E with the open low E ringing under an A-shape at the 7th."
+          ],
+          "show": {"chords": [{"name": "Bm", "frets": [7, 9, 9, 7, 7, 7]}, {"name": "E", "frets": [0, 7, 9, 9, 9, -1]}]}
+        },
+        {
+          "title": "The riff is the chords",
+          "text": [
+            "Chuck's double stops were chord fragments. Nick's riff does the same thing one note at a time.",
+            "Over Bm: D, B, A. The b3, the root and the b7: a Bm7. Over E: G#, B, D. The 3rd, the 5th and the b7: an E7. The D is in both, the thread between the two chords.",
+            "The G# is the Dorian note, the one that isn't in B natural minor. The chart plays it on the A string 11th; the same pitch is the D string 6th, right by your hand.",
+            "Find the four notes: D on the G 7th, B on the D 9th, A on the D 7th, G# on the A 11th (or the D 6th)."
+          ],
+          "show": {"marks": [[3, 7, "D b3"], [2, 9, "B 1"], [2, 7, "A b7"], [1, 11, "G# 3 of E"], [2, 6, "G#"]]},
+          "do": "find",
+          "targets": [[3, 7], [2, 9], [2, 7], [1, 11]]
+        },
+        {
+          "title": "The box you know: B minor pentatonic",
+          "text": [
+            "Your Bb box from Johnny B. Goode, one fret up: first finger on the 7th fret. Low E, B and top E: 7th and 10th. A, D and G: 7th and 9th.",
+            "B D E F# A: root, b3, 4, 5, b7. The Bm half of the riff (D, B, A) is all in here.",
+            "Play it up and down. Then notice what's missing: no G#. The E half of the riff steps outside the box."
+          ],
+          "show": {
+            "scale": {
+              "name": "B minor pentatonic",
+              "root": "B",
+              "shape": [[0, 7], [0, 10], [1, 7], [1, 9], [2, 7], [2, 9], [3, 7], [3, 9], [4, 7], [4, 10], [5, 7], [5, 10]]
+            },
+            "intervals": true
+          },
+          "do": "run"
+        },
+        {
+          "title": "What he leans on",
+          "text": [
+            "The picture weighs every note of the intro by how long it lasts and whether it lands on the beat.",
+            "D comes out on top, then B: the minor 3rd and the root. The D is what makes it minor, and it starts every Bm bar.",
+            "Next is G#, outside the box: the E chord's 3rd. Then A, the b7.",
+            "That's all: four notes make the whole riff. A great riff doesn't need many notes, it needs the right ones under each chord."
+          ],
+          "show": {
+            "scale": {
+              "name": "B minor pentatonic",
+              "root": "B",
+              "shape": [[0, 7], [0, 10], [1, 7], [1, 9], [2, 7], [2, 9], [3, 7], [3, 9], [4, 7], [4, 10], [5, 7], [5, 10]]
+            },
+            "emphasis": true,
+            "intervals": true
+          }
+        },
+        {
+          "title": "B Dorian: one note changes",
+          "text": [
+            "Natural minor: B C# D E F# G A. Dorian: B C# D E F# G# A. The 6th goes up a half step. Over the E chord, G# is the chord's own 3rd, so it sounds right where G would clash.",
+            "Chuck mixed two whole pentatonics for his bright notes. Here it's one note, picked to fit the chord under it. That's the habit to take from this song: the scale follows the chords.",
+            "The shape: the pentatonic box plus C# and G#. One finger per fret from the 7th, reaching back to the 6th for G# (D string) and C# (G string). Play it up and down."
+          ],
+          "show": {
+            "scale": {
+              "name": "B Dorian",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [2, 6], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 9], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            },
+            "intervals": true
+          },
+          "do": "run"
+        },
+        {
+          "title": "Jam over the intro",
+          "text": [
+            "The intro loops: Bm and E, two bars each, with Nick's riff on the record. Play over the top.",
+            "Start with chord tones, one note per change: B, D or A over Bm; G#, B or D over E.",
+            "Then move round the Dorian box. Land on G# (B string 9th) as the E arrives and on D (G 7th or top E 10th) as Bm comes back.",
+            "Borrow Nick's rhythm: two quick notes, a gap, two more. Silence counts."
+          ],
+          "show": {
+            "scale": {
+              "name": "B Dorian",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [2, 6], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 9], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            }
+          },
+          "do": "jam",
+          "start": 23.62,
+          "end": 47.95,
+          "part": "Combo"
+        }
+      ]
+    },
+    {
+      "id": "breakdown-hook",
+      "kind": "learn",
+      "name": "The breakdown and the hook",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 84.4,
+      "end": 120.8,
+      "pass": 0.8,
+      "about": "After chorus 1 the band drops to a one-string tune on the B string, then Nick plays the hook: nonstop eighths on the top two strings, four bars, four times. About 36 seconds in one go. Breakdown 2 and the outro are the same.",
+      "how": [
+        "Breakdown, all on the B string: D, A, B, C#, B, C#, A, D (frets 15, 10, 12, 14, 12, 14, 10, 15), twice.",
+        "Each note: pick it, a dead note, then pick again and slide into the next fret. Dead note: keep the finger on the string but stop pressing. The first D gets one extra pick.",
+        "Use one finger for the whole line, so the slides carry you from fret to fret. The changes come an eighth early, on the 'and': let the slide pull you there.",
+        "The hook: hand in 7th position, one finger per fret. The top E 12th is a little-finger stretch. Strict alternate picking, down on the beat, up on the 'and', across the string changes.",
+        "Bar 1: B F# A D C# F# A B. Bars 2 and 3: B G B D C# A E C#. Bar 4: F# G F# C# D B F# C#. Then round again. Say the names while you learn it.",
+        "Same fret on two strings (B 7th to top E 7th): roll the flat first finger across rather than lifting it.",
+        "Stamina, not speed: eighths at 158 is about five notes a second. Lost your place? Jump back in at the next high B on a bar line.",
+        "The last time round, bar 4 stops short on B. That's the way into the interlude."
+      ],
+      "callouts": [
+        {"at": 84.45, "text": "Breakdown: B string, pick, dead note, slide"},
+        {"at": 90.52, "text": "Again: D gets the extra pick"},
+        {"at": 96.6, "text": "The hook: bar 1 starts on the top E 7th"},
+        {"at": 98.12, "text": "Bar 2: B G B D, C# A E C#"},
+        {"at": 99.64, "text": "Bar 3 = bar 2"},
+        {"at": 101.16, "text": "Bar 4: F# G F#, then down to B"},
+        {"at": 102.67, "text": "Round again, three more times"},
+        {"at": 119.39, "text": "Last bar: stop on B"}
+      ]
+    },
+    {
+      "id": "tenths",
+      "kind": "learn",
+      "name": "Albert's tenths",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Combo",
+      "start": 84.4,
+      "end": 120.8,
+      "pass": 0.8,
+      "about": "Under the breakdown and the hook, Albert plays two-note chords on the A and B strings: Bm, F#m, G, A, G, A, F#m, Bm, eight times through. 36 seconds, all one pattern. The top note is Nick's breakdown line.",
+      "how": [
+        "Root on the A string, 3rd on the B string, the D and G strings muted in between. Bm is A 14th plus B 15th.",
+        "Minor chords (Bm, F#m): the two frets sit side by side, first and second fingers. Major chords (G, A): two frets apart, first and third fingers.",
+        "Lay your first finger flat so its underside mutes the D and G strings. Then you can strum straight through all four strings.",
+        "Same rhythm as the breakdown line: hit, dead strum, hit, with an extra hit on the first Bm. For the dead strum, loosen the hand so nothing rings.",
+        "The changes land an eighth early, on the 'and'. Move the hand during the dead strum.",
+        "It doesn't change when the hook starts. Keep going and listen to how the two parts fit."
+      ],
+      "callouts": [
+        {"at": 84.45, "text": "Bm, A 14 + B 15, then F#m down five frets"},
+        {"at": 86.16, "text": "Changes on the 'and': F#m, G, A, G, A, F#m"},
+        {"at": 89.96, "text": "Bm early, then the extra hit"},
+        {"at": 96.6, "text": "Hook starts: same pattern"}
+      ]
+    },
+    {
+      "id": "middle",
+      "kind": "learn",
+      "name": "The middle: interlude, solo, build-up",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 120.85,
+      "end": 157.34,
+      "pass": 0.8,
+      "about": "Everything between the hook and verse 3, about 36 seconds: a floating triplet line, the four-bar solo, the triplet line again, and the palm-muted build-up. None of it repeats anywhere else.",
+      "how": [
+        "Interlude: hand in 6th position, one finger per fret. G# F# E F# E D E D C# D C# F#, twice per four bars. B string 9 and 7, G string 9, 7 and 6.",
+        "These are quarter-note triplets: three notes in the space of two beats. Tap your foot with the drums, not with the notes. Each note lasts two-thirds of a beat.",
+        "The end: slide the first finger from the G 6th down to the 4th (C# to B) and let it ring. That rest is your time to get to the bend.",
+        "Solo bar 1 (pickup): ring finger bends the B string 10th up a whole tone (A to B), fingers behind it helping. Then top E 7th (B).",
+        "The lick, in sixteenths: B 10 pulled off to 9, then G 11, 9, 11, 7 (A G# F# E F# D). Then top E 10, 9 (D, C#) and the lick again.",
+        "Bar 3: hand up, first finger at the 9th. Bend the top E 12th up a whole tone (to F#). Then top E 10 pulled off to 9; B string 12, 11, 12 (B, Bb, B), then 9. Bar 4: the bend again, D C#, B, then the B 9th bent up a half step and held.",
+        "Interlude 2: the triplet line again, ending with a slide from the G 7th to the 4th (D to B), held.",
+        "Build-up: palm mute by the bridge, down-strokes on low B (E string 7th). Lift the palm on beats 2 and 4. Then the same on E (A string 7th), one open A, B again with a few more accents, and two bars of unmuted E into verse 3."
+      ],
+      "callouts": [
+        {"at": 120.9, "text": "Interlude: triplets, three across two beats"},
+        {"at": 126.75, "text": "B (D 9th) this time, then slide C# to B, ready to bend"},
+        {"at": 132.88, "text": "Solo: bend A up to B, then the lick in sixteenths"},
+        {"at": 134.4, "text": "D, C#, then the lick again"},
+        {"at": 135.92, "text": "Hand up: bend top E 12 to F#, then B Bb B, hold the G# bend"},
+        {"at": 139.16, "text": "Interlude 2: triplets again"},
+        {"at": 143.45, "text": "Slide D to B, hold"},
+        {"at": 145.24, "text": "Build-up: palm-muted B, open up on 2 and 4"},
+        {"at": 148.27, "text": "E, same pattern"},
+        {"at": 151.11, "text": "Open A, then B with more accents"},
+        {"at": 154.33, "text": "E unmuted: build into verse 3"}
+      ]
+    },
+    {
+      "id": "middle-theory",
+      "kind": "theory",
+      "name": "Theory: how the parts are built, and writing your own",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 132.8,
+      "end": 139.1,
+      "about": "The breakdown chords and their 3rds, the push, natural minor against Dorian, the hook as chords, three against two, how the solo is built and where its bends land. Then write your own hook and solo.",
+      "pages": [
+        {
+          "title": "The breakdown chords",
+          "text": [
+            "Under the breakdown and the hook: Bm, F#m, G, A, G, A, F#m, Bm, a chord every two beats. In B natural minor that's i, v, VI, VII. All four come straight from the chord list you built: no borrowed notes this time.",
+            "Albert plays each as a tenth: the root on the A string and the 3rd an octave higher on the B string. Two notes, but they say major or minor clearly, because the 3rd is the note that decides.",
+            "Minor tenth: the frets side by side. Major tenth: one fret gap. The boxes show all four.",
+            "Valensi's own advice for two-guitar bands: play less. Don't play the full chord, play two notes of it, and let the other guitar take two different ones. That's this whole section."
+          ],
+          "show": {
+            "chords": [
+              {"name": "Bm (10th)", "frets": [-1, 14, -1, -1, 15, -1]},
+              {"name": "F#m (10th)", "frets": [-1, 9, -1, -1, 10, -1]},
+              {"name": "G (10th)", "frets": [-1, 10, -1, -1, 12, -1]},
+              {"name": "A (10th)", "frets": [-1, 12, -1, -1, 14, -1]}
+            ]
+          }
+        },
+        {
+          "title": "The 3rds on top, and the push",
+          "text": [
+            "Nick's breakdown line is the top of Albert's tenths: D, A, B, C#. The 3rd of each chord. A melody made only of 3rds follows the chords whatever they do.",
+            "You met this in Johnny B. Goode: aim for the 3rd and you sound like you know the changes. Here a whole part is built that way.",
+            "Listen to where the changes land: an eighth early, on the 'and' before the beat. That's anticipation, or a push. It makes the part lean forward.",
+            "Find the four 3rds on the B string: 15th, 10th, 12th, 14th."
+          ],
+          "show": {"marks": [[4, 15, "D 3 of Bm"], [4, 10, "A 3 of F#m"], [4, 12, "B 3 of G"], [4, 14, "C# 3 of A"]]},
+          "do": "find",
+          "targets": [[4, 15], [4, 10], [4, 12], [4, 14]]
+        },
+        {
+          "title": "Natural minor: the scale follows the chord",
+          "text": [
+            "The verse had an E chord, so it wanted G#. The breakdown and hook have a G chord, so they want G. Same key, a different 6th.",
+            "B natural minor at the 7th fret: the pentatonic box plus C# and G. G is on the A string 10th and the B string 8th. Every note of the breakdown and the hook is in this shape.",
+            "Play it up and down. Then compare it with the Dorian shape from the first theory lesson: only the G moves."
+          ],
+          "show": {
+            "scale": {
+              "name": "B natural minor",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [1, 10], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 8], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            },
+            "intervals": true
+          },
+          "do": "run"
+        },
+        {
+          "title": "The hook is the chords too",
+          "text": [
+            "Bars 2 and 3 of the hook: B G B D over G, then C# A E C# over A. Each half bar is that chord's notes, 3rd first: a broken chord on the top two strings.",
+            "Bar 1 does it for Bm (B, F#, D) and F#m (C#, F#, A). Bar 4 runs F# G F# over F#m, then D B F# over Bm, and C# leads back round.",
+            "So the hook and the breakdown are the same idea: the chords, spelled out by the guitar, landing early with the push.",
+            "Then the interlude flips the rhythm: quarter-note triplets, three notes across two beats. Chuck's 3+3+2 pushed against the bar; this floats across it."
+          ],
+          "show": {
+            "scale": {
+              "name": "B natural minor",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [1, 10], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 8], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            },
+            "marks": [[5, 7, "B"], [4, 8, "G"], [5, 10, "D"], [5, 9, "C#"], [4, 10, "A"], [5, 12, "E"]]
+          }
+        },
+        {
+          "title": "How the solo is built",
+          "text": [
+            "The solo is four bars: two over Bm, two over E, back in Dorian. The picture weighs its notes.",
+            "B, D and F#, the Bm chord, carry it. The bends show up as the fret (A, E) or as where they land (B, F#): either way they aim at the chord.",
+            "One idea, played twice: a bend to the root, then a quick lick down the Dorian box (A G# F# E F# D) that lands on D, the b3. Then he moves up the neck, bends to F#, and wiggles B, Bb, B: one chromatic passing note, gone in a sixteenth.",
+            "It ends on G# bent up to A over the E chord and held. It doesn't resolve. The interlude takes over from there."
+          ],
+          "show": {
+            "scale": {
+              "name": "B Dorian",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [2, 6], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 9], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            },
+            "emphasis": true,
+            "intervals": true
+          }
+        },
+        {
+          "title": "Bend to a chord tone",
+          "text": [
+            "Every bend in the solo lands on a note of the chord: A bent up to B (the root of Bm), E bent up to F# (the 5th of Bm), G# bent up to A.",
+            "A bend that arrives on a chord tone sounds sure of itself. Pick the target first, then the note a whole tone (two frets) below it.",
+            "Find the targets: B on the B string 12th, F# on the top E 14th, G# on the B string 9th. Fret them, or bend up to them from two frets below."
+          ],
+          "show": {
+            "scale": {
+              "name": "B Dorian",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [2, 6], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 9], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            },
+            "marks": [[4, 12, "B"], [4, 10, "bend from"], [5, 14, "F#"], [5, 12, "bend from"], [4, 9, "G#"]]
+          },
+          "do": "find",
+          "targets": [[4, 12], [5, 14], [4, 9]]
+        },
+        {
+          "title": "Jam: write your own hook",
+          "text": [
+            "The hook section loops: Bm, F#m, G, A, G, A, F#m, Bm under Nick's line. Write a part that fits it.",
+            "1: one note per chord, the 3rd, on the B and top E strings (D, A, B, C#). 2: add the root and the 5th of each chord: a broken chord, like the hook. 3: keep eighth notes going and move a beat early into each chord.",
+            "Stay in natural minor here: G, not G#. Keep it on two strings and in one position, as Nick does."
+          ],
+          "show": {
+            "scale": {
+              "name": "B natural minor",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [1, 10], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 8], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            }
+          },
+          "do": "jam",
+          "start": 96.55,
+          "end": 120.8,
+          "part": "Combo"
+        },
+        {
+          "title": "Jam: build your own solo",
+          "text": [
+            "The interlude and the solo loop: Bm and E, two bars each, in Dorian. Build a solo in layers, one more each time round.",
+            "1: one bend per two bars, landing on a chord tone (B or F# over Bm, G# or B over E). 2: add a short lick after each bend and play it twice, as Nick does. 3: go up to the 12th fret for the E bars, back down for Bm.",
+            "4: G# on every E bar. 5: one chromatic passing note, quick, between two scale notes. When a pass hangs together, go back and play Nick's and notice what he chose."
+          ],
+          "show": {
+            "scale": {
+              "name": "B Dorian",
+              "root": "B",
+              "shape": [[0, 7], [0, 9], [0, 10], [1, 7], [1, 9], [2, 6], [2, 7], [2, 9], [3, 6], [3, 7], [3, 9], [4, 7], [4, 9], [4, 10], [5, 7], [5, 9], [5, 10], [5, 12]]
+            }
+          },
+          "do": "jam",
+          "start": 120.85,
+          "end": 145.2,
+          "part": "Combo 2"
+        }
+      ]
+    },
+    {
+      "id": "whole-song",
+      "kind": "learn",
+      "name": "The whole song, lead",
+      "artist": "The Strokes",
+      "title": "Reptilia",
+      "part": "Lead",
+      "start": 23.62,
+      "end": 225.5,
+      "pass": 0.8,
+      "listens": 1,
+      "about": "Nick's part from the first riff to the last note, about three and a half minutes. You know all of it. The repeats and the ending are pointed out as they come.",
+      "how": [
+        "The form: intro, verse 1, verse 2, chorus 1 (all the riff), breakdown, hook, interlude, solo, interlude, build-up, verse 3 and chorus 2 (the riff), breakdown 2, hook into the outro.",
+        "The riff runs for a minute without a break, verse after verse. Keep the gaps clean and the picking hand loose.",
+        "The ending: the hook's last bar stops on the top E 9th (C#), bent up a half step and held for about six seconds. Then one low B on the E string 7th."
+      ],
+      "callouts": [
+        {"at": 47.98, "text": "Verse 1: the same riff"},
+        {"at": 60.13, "text": "Verse 2: same"},
+        {"at": 72.3, "text": "Chorus 1: same riff, Albert back in"},
+        {"at": 84.45, "text": "Breakdown: the B string line"},
+        {"at": 96.6, "text": "The hook, four times"},
+        {"at": 119.39, "text": "Last hook bar stops on B"},
+        {"at": 120.9, "text": "The middle, as learned"},
+        {"at": 157.38, "text": "Verse 3: the riff again"},
+        {"at": 169.55, "text": "Chorus 2: same"},
+        {"at": 181.69, "text": "Breakdown 2: as before"},
+        {"at": 193.86, "text": "The hook, through to the end"},
+        {"at": 216.61, "text": "Last bar: hold the C# and bend it up"},
+        {"at": 224.2, "text": "One low B. Done"}
+      ]
+    }
+  ]
+}

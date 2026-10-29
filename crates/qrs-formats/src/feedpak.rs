@@ -25,6 +25,17 @@ use crate::model::{Anchor, Arrangement, Beat, Chord, HandShape, Note, Section, T
 use crate::package::ArrangementInfo;
 use crate::sng::py_round;
 
+/// One stem a mixer offers (spec §5.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StemInfo {
+    pub id: String,
+    /// The display label (`name`, else the id).
+    pub name: String,
+    pub file: String,
+    /// Plays when the song opens.
+    pub default: bool,
+}
+
 pub const SUFFIXES: [&str; 2] = ["feedpak", "sloppak"];
 pub const SUPPORTED_MAJOR: u32 = 1;
 
@@ -300,6 +311,23 @@ fn templates(raw: Option<&Value>) -> Vec<Template> {
         .unwrap_or_default()
 }
 
+/// A list of densities (numbers, or numbers as strings), as Rocksmith's manifest and the feedpak extension key
+/// carry DynamicVisualDensity; anything else is empty.
+pub(crate) fn densities(v: Option<&Value>) -> Vec<f32> {
+    match v {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| {
+                x.as_f64()
+                    .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))
+            })
+            .filter(|x| x.is_finite() && *x > 0.0)
+            .map(|x| x as f32)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn parse_chord(d: &Map<String, Value>, templates: &[Template]) -> Chord {
     let t = num(d.get("t"), 0.0);
     let cid = int32(d.get("id"), -1);
@@ -348,6 +376,7 @@ fn parse_chord(d: &Map<String, Value>, templates: &[Template]) -> Chord {
         sustain,
         frets: tpl.frets,
         fingers: tpl.fingers,
+        high_density: flag(d.get("hd")),
     }
 }
 
@@ -629,6 +658,8 @@ impl FeedpakPackage {
                 song_length: duration,
                 bonus,
                 source_chart: vstr(rs.get("chart")),
+                // (an extension key the converter writes: Rocksmith's DynamicVisualDensity)
+                visual_density: densities(rs.get("visualDensity")),
                 ..Default::default()
             });
         }
@@ -713,9 +744,15 @@ impl FeedpakPackage {
         arr.cent_offset = num(data.get("centOffset"), 0.0);
         arr.song_length = duration;
         arr.is_bass = info.is_bass;
+        arr.visual_density = info.visual_density.clone();
         arr.source = "feedpak".into();
         arr.mastery = mastery;
         arr.has_levels = data.get("phrases").map(py_truthy).unwrap_or(false);
+        arr.phrases = crate::model::sorted_times(
+            dicts(data.get("phrases"))
+                .into_iter()
+                .map(|p| num(p.get("start_time").or_else(|| p.get("time")), 0.0)),
+        );
 
         let (mut beats, mut sections) = self.timeline();
         let own = data
@@ -795,6 +832,8 @@ impl FeedpakPackage {
                     name: vstr(c.get("name")),
                 });
             }
+            arr.base_tone = vstr(tones.get("base"));
+            arr.rig = crate::rig::parse_tones(tones.get("definitions"));
         }
         Ok(arr)
     }
@@ -874,6 +913,48 @@ impl FeedpakPackage {
             }
         }
         None
+    }
+
+    /// The stems a mixer offers (spec §5.3): every stem but the `full` mixdown whose file is in the pack, in the
+    /// manifest's order. Empty when there is nothing to mix (one stem, or a lone stem beside no `full`).
+    pub fn mix_stems(&self) -> Vec<StemInfo> {
+        let mut out: Vec<StemInfo> = Vec::new();
+        for s in self.stems() {
+            let (id, file) = (vstr(s.get("id")), vstr(s.get("file")));
+            if id == "full" || !self.exists(&file) || out.iter().any(|o| o.file == file) {
+                continue;
+            }
+            let name = match s.get("name") {
+                Some(Value::String(n)) if !n.trim().is_empty() => n.trim().to_string(),
+                _ if id.is_empty() => file.rsplit('/').next().unwrap_or(&file).to_string(),
+                _ => id.clone(),
+            };
+            out.push(StemInfo {
+                id,
+                name,
+                file,
+                default: flag(s.get("default")),
+            });
+        }
+        if out.len() < 2 && self.full_stem().is_none() {
+            return Vec::new();
+        }
+        if !out.iter().any(|s| s.default) {
+            // no stem says it plays on open: all of them do (better than a silent song)
+            for s in &mut out {
+                s.default = true;
+            }
+        }
+        out
+    }
+
+    /// The `full` stem (the complete mixdown) if the pack has one.
+    pub fn full_stem(&self) -> Option<String> {
+        self.stems()
+            .iter()
+            .filter(|s| vstr(s.get("id")) == "full")
+            .map(|s| vstr(s.get("file")))
+            .find(|f| self.exists(f))
     }
 
     pub fn preview(&self) -> Option<String> {
@@ -975,6 +1056,24 @@ mod tests {
         let v: Value = serde_json::from_str(&strip_comments(t)).unwrap();
         assert_eq!(v["a"], "// not a comment");
         assert_eq!(v["b"], 1);
+    }
+
+    #[test]
+    fn chords_hd_and_the_density_extension() {
+        let tpl = vec![Template {
+            name: "G".into(),
+            frets: vec![3, 2, 0, 0, 0, 3],
+            fingers: vec![-1; 6],
+        }];
+        let c: Value = serde_json::json!({"t": 1.0, "id": 0, "hd": true});
+        assert!(parse_chord(c.as_object().unwrap(), &tpl).high_density);
+        let c: Value = serde_json::json!({"t": 1.0, "id": 0});
+        assert!(!parse_chord(c.as_object().unwrap(), &tpl).high_density);
+        assert_eq!(
+            densities(Some(&serde_json::json!([5.0, "2.5", -1, "x"]))),
+            vec![5.0, 2.5]
+        );
+        assert!(densities(Some(&serde_json::json!(4.0))).is_empty() && densities(None).is_empty());
     }
 
     #[test]

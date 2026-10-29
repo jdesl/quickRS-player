@@ -14,8 +14,10 @@ pub enum MonitorSink {
     Duplex,
     /// Another device: through this queue (the output's cushion), resampled when the rates differ.
     Queue {
+        /// Frames of (toned, dry) pairs.
         tx: rtrb::Producer<f32>,
         resampler: LinearResampler,
+        resampler_dry: LinearResampler,
     },
     None,
 }
@@ -29,8 +31,18 @@ pub struct InputSide {
     sink: MonitorSink,
     channel: i32,
     monitor: bool,
+    /// Hand the guitar on even with monitoring off (the looper, Rewind).
+    feed: bool,
     input_gain: f32,
     tone: Option<Box<dyn ToneProcessor>>,
+    /// The tone being faded out after a swap (`Some(None)`: fading out from the dry guitar), and how far.
+    fading: Option<Option<Box<dyn ToneProcessor>>>,
+    fade_pos: usize,
+    fade_len: usize,
+    /// The fading tone's own copy of the block.
+    faded: Vec<f32>,
+    /// The toned guitar's peak (the board's output meter).
+    tone_peak: f32,
     detector: OnsetDetector,
     /// Device latency to add on top of the block timing the backend reports (seconds).
     pub extra_latency: f64,
@@ -41,7 +53,11 @@ pub struct InputSide {
     dc_x1: f32,
     dc_y1: f32,
     shaped: Vec<f32>,
+    /// The guitar before the tone (for the looper's re-amp and Rewind).
+    dry: Vec<f32>,
     resampled: Vec<f32>,
+    resampled_dry: Vec<f32>,
+    pairs: Vec<f32>,
     peaks: [f32; MAX_IN_CHANNELS],
     level: f32,
     peak: f32,
@@ -51,6 +67,7 @@ pub struct InputConfig {
     pub rate: u32,
     pub channel: i32,
     pub monitor: bool,
+    pub feed: bool,
     pub input_gain: f32,
     pub onset_floor: f32,
     pub max_block: usize,
@@ -79,8 +96,14 @@ impl InputSide {
             sink,
             channel: cfg.channel,
             monitor: cfg.monitor,
+            feed: cfg.feed,
             input_gain: cfg.input_gain,
             tone,
+            fading: None,
+            fade_pos: 0,
+            fade_len: (cfg.rate as usize * 30 / 1000).max(1),
+            faded: vec![0.0; cap],
+            tone_peak: 0.0,
             detector,
             extra_latency: 0.0,
             mono: vec![0.0; cap],
@@ -88,7 +111,10 @@ impl InputSide {
             dc_x1: 0.0,
             dc_y1: 0.0,
             shaped: vec![0.0; cap],
+            dry: vec![0.0; cap],
             resampled: vec![0.0; cap * 2 + 16],
+            resampled_dry: vec![0.0; cap * 2 + 16],
+            pairs: vec![0.0; cap * 4 + 32],
             peaks: [0.0; MAX_IN_CHANNELS],
             level: 0.0,
             peak: 0.0,
@@ -100,8 +126,21 @@ impl InputSide {
             match cmd {
                 InCmd::Channel(c) => self.channel = c,
                 InCmd::Tone(t) => {
-                    if let Some(old) = std::mem::replace(&mut self.tone, t) {
-                        discard(&mut self.trash, Trash::Tone(old));
+                    // crossfade from the old tone (or the dry guitar) over 30 ms; a swap during a fade drops the
+                    // tone that was already on its way out
+                    let old = std::mem::replace(&mut self.tone, t);
+                    if let Some(Some(gone)) = self.fading.replace(old) {
+                        discard(&mut self.trash, Trash::Tone(gone));
+                    }
+                    self.fade_pos = 0;
+                }
+                InCmd::Board(c) => {
+                    let spare = match self.tone.as_mut() {
+                        Some(t) => t.board(c),
+                        None => c.into_pedal(),
+                    };
+                    if let Some(p) = spare {
+                        discard(&mut self.trash, Trash::Pedal(p));
                     }
                 }
                 InCmd::ToneParams(p) => {
@@ -110,6 +149,7 @@ impl InputSide {
                     }
                 }
                 InCmd::Monitor(m) => self.monitor = m,
+                InCmd::Feed(f) => self.feed = f,
                 InCmd::InputGain(g) => self.input_gain = g,
                 InCmd::OnsetFloor(f) => self.detector.min_energy = f,
             }
@@ -141,9 +181,9 @@ impl InputSide {
         }
     }
 
-    /// One block of at most `max_block` frames. Returns the monitored guitar (mono, toned) for duplex mode, empty
-    /// otherwise.
-    pub fn process_block(&mut self, data: &[f32], channels: usize, capture_ns: u64) -> &[f32] {
+    /// One block of at most `max_block` frames. Returns the guitar for duplex mode (mono: toned, and dry before the
+    /// tone), empty otherwise.
+    pub fn process_block(&mut self, data: &[f32], channels: usize, capture_ns: u64) -> (&[f32], &[f32]) {
         let t0 = now_ns();
         self.apply_commands();
         let channels = channels.max(1);
@@ -174,6 +214,14 @@ impl InputSide {
         for c in 0..nmeter {
             self.peaks[c] = (self.peaks[c] * 0.95).max(blk_peaks[c]);
             sh.ch_peaks[c].set(self.peaks[c]);
+        }
+        // the interface clipping: the guitar's raw samples at full scale (before the DC blocker moves them)
+        let raw = match pick {
+            Some(c) if c < nmeter => blk_peaks[c],
+            _ => blk_peaks[..nmeter].iter().fold(0.0f32, |m, &p| m.max(p)),
+        };
+        if raw >= 0.999 {
+            sh.in_clips.fetch_add(1, Ordering::Relaxed);
         }
         let (r, mut x1, mut y1) = (self.dc_r, self.dc_x1, self.dc_y1);
         for s in &mut self.mono[..frames] {
@@ -223,33 +271,85 @@ impl InputSide {
 
         // the guitar to hear
         let mut out_len = 0;
-        if self.monitor {
+        if self.monitor || self.feed {
             let g = self.input_gain;
-            for (o, s) in self.shaped[..frames].iter_mut().zip(x) {
+            for ((o, d), s) in self.shaped[..frames]
+                .iter_mut()
+                .zip(self.dry[..frames].iter_mut())
+                .zip(x)
+            {
                 *o = s * g;
+                *d = *o;
+            }
+            if self.fading.is_some() {
+                self.faded[..frames].copy_from_slice(&self.shaped[..frames]);
+                if let Some(Some(old)) = self.fading.as_mut() {
+                    old.process(&mut self.faded[..frames]);
+                }
             }
             if let Some(t) = self.tone.as_mut() {
                 t.process(&mut self.shaped[..frames]);
+                while let Some(p) = t.trash() {
+                    discard(&mut self.trash, Trash::Pedal(p));
+                }
             }
+            if self.fading.is_some() {
+                let len = self.fade_len as f32;
+                for (i, (o, f)) in self.shaped[..frames]
+                    .iter_mut()
+                    .zip(&self.faded[..frames])
+                    .enumerate()
+                {
+                    let w = ((self.fade_pos + i) as f32 / len).min(1.0);
+                    *o = *f + (*o - *f) * w;
+                }
+                self.fade_pos += frames;
+                if self.fade_pos >= self.fade_len
+                    && let Some(Some(gone)) = self.fading.take()
+                {
+                    discard(&mut self.trash, Trash::Tone(gone));
+                }
+                if self.fade_pos >= self.fade_len {
+                    self.fading = None;
+                }
+            }
+            let pk = self.shaped[..frames].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            self.tone_peak = (self.tone_peak * 0.95).max(pk);
+            sh.tone_peak.set(self.tone_peak);
             match &mut self.sink {
                 MonitorSink::Duplex => out_len = frames,
-                MonitorSink::Queue { tx, resampler } => {
-                    let src: &[f32] = if resampler.is_identity() {
-                        &self.shaped[..frames]
+                MonitorSink::Queue {
+                    tx,
+                    resampler,
+                    resampler_dry,
+                } => {
+                    let (wet, dry): (&[f32], &[f32]) = if resampler.is_identity() {
+                        (&self.shaped[..frames], &self.dry[..frames])
                     } else {
                         let n = resampler.process(&self.shaped[..frames], &mut self.resampled);
-                        &self.resampled[..n]
+                        let m = resampler_dry.process(&self.dry[..frames], &mut self.resampled_dry);
+                        let n = n.min(m);
+                        (&self.resampled[..n], &self.resampled_dry[..n])
                     };
+                    let n = wet.len().min(self.pairs.len() / 2);
+                    for i in 0..n {
+                        self.pairs[2 * i] = wet[i];
+                        self.pairs[2 * i + 1] = dry[i];
+                    }
                     // a full queue (the output stalled) drops the newest guitar; the cushion catches up
-                    if let Ok(chunk) = tx.write_chunk_uninit(src.len().min(tx.slots())) {
-                        chunk.fill_from_iter(src.iter().copied());
+                    let room = (tx.slots() / 2).min(n) * 2;
+                    if let Ok(chunk) = tx.write_chunk_uninit(room) {
+                        chunk.fill_from_iter(self.pairs[..room].iter().copied());
                     }
                 }
                 MonitorSink::None => {}
             }
         }
+        // when the newest sample handed on was played (the looper measures the round trip from it)
+        let newest = capture_ns as f64 + frames as f64 / rate * 1e9 - self.extra_latency * 1e9;
+        sh.in_newest_ns.store(newest.max(0.0) as u64, Ordering::Relaxed);
         sh.note_work(now_ns().saturating_sub(t0));
-        &self.shaped[..out_len]
+        (&self.shaped[..out_len], &self.dry[..out_len])
     }
 }
 

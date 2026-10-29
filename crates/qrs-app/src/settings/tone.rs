@@ -254,12 +254,12 @@ impl SettingsView {
         };
         match verb {
             "tone" => {
-                let spec = tones::spec_of(arg, tones::custom(&st.config));
+                let spec = tones::spec_for(&st.config, arg);
                 apply(st, spec);
             }
             "tonecycle" => {
                 let next = tones::next(current);
-                let spec = tones::spec_of(next, tones::custom(&st.config));
+                let spec = tones::spec_for(&st.config, next);
                 apply(st, spec);
                 self.say(format!("Tone: {}", tones::label(next)));
             }
@@ -313,7 +313,7 @@ impl SettingsView {
             None => tones::name_of(&tones::current(&st.config)),
         };
         // the title, and the tone you hear at the right (its keys narrower than the Python app's, pad 9 for its
-        // 14, for the two tones more)
+        // 14, for the three tones more)
         let labels: Vec<&str> = tones::TONES.iter().map(|n| tones::label(n)).collect();
         let widths = segment_widths(&ctx, &labels, 14.0, 9.0);
         let seg_w = widths.iter().sum::<f32>() + px(4.0) * (widths.len() - 1) as f32 + 2.0 * px(5.0);
@@ -338,7 +338,7 @@ impl SettingsView {
         );
         text::draw(
             &p,
-            "Guitar tone",
+            "Raw guitar tone",
             pos2(body.min.x, body.min.y + px(2.0)),
             Align2::LEFT_TOP,
             Style::new(22.0, 800, th.text),
@@ -351,7 +351,7 @@ impl SettingsView {
             body.min.y + px(34.0),
             seg.min.x - body.min.x - px(20.0),
             13.0,
-            2,
+            3, // (three lines since the Pedalboard key made the keys wider)
         );
         let mut y = seg.max.y.max(ty) + px(20.0);
         let params = tones::custom(&st.config);

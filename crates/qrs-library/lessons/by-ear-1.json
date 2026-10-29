@@ -1,0 +1,74 @@
+{
+  "id": "by-ear-1",
+  "number": 1,
+  "course": "Ear training",
+  "course_order": 2,
+  "title": "Pick up a riff by ear",
+  "summary": "Four famous riffs, worked out with your ears one note at a time, then played with the record.",
+  "intro": [
+    "Playing by ear is a skill, not a gift: it grows every time you work something out yourself. Like most teachers, we start with single-note riffs, found one note at a time.",
+    "The rule for the whole course: ears first, eyes last. The tab stays hidden until you've found the notes, and quickRS listens to your guitar and tells you the moment you've got each one, so you never practise a wrong note for long.",
+    "Each riff goes through five short steps: listen, the first note, note by note, play along with the record, then check the tab. Take them in order. The first ones feel slow, but they are the skill."
+  ],
+  "tips": [
+    "Hum it first. If you can hum it, you can find it, and your voice doesn't need to be good.",
+    "One question at a time: is the next note higher or lower? A small step or a jump?",
+    "On one string every fret is a semitone, so 'two higher' means two frets up.",
+    "Let notes ring while you're finding them; mute them when you play along.",
+    "Stuck? Hear it again (R), slower, then take a hint. Hints keep you moving; they don't cost you anything.",
+    "Play along starts at full speed. If it runs away from you, Slower (Ctrl+=) takes it down a notch, and a good pass brings it back up.",
+    "Something sounds off? The Tuner (U) is a key away, whenever you want it.",
+    "Ten minutes a day trains your ears more than an hour on Sunday."
+  ],
+  "credit": "The method is the classic way of learning songs by ear, as Justin Sandercoe's transcribing lessons (justinguitar.com) and many other teachers teach it: listen first, find the first note, then one note at a time.",
+  "riffs": [
+    {
+      "id": "smoke",
+      "name": "The opening riff",
+      "artist": "Deep Purple",
+      "title": "Smoke on the Water",
+      "part": "Lead",
+      "start": 12.136,
+      "end": 20.752,
+      "phrase": 12,
+      "string_hint": true,
+      "about": "Twelve notes but only four different ones, all on the G string. On the record it's played as two-note chords; you're finding the top line."
+    },
+    {
+      "id": "seven-nation",
+      "name": "The riff",
+      "artist": "The White Stripes",
+      "title": "Seven Nation Army",
+      "part": "Rhythm",
+      "start": 12.034,
+      "end": 20.068,
+      "phrase": 7,
+      "string_hint": true,
+      "about": "Seven notes on the A string. The guitar on the record goes through an octave pedal, so it sounds an octave lower than you'll play it: if the coach says you're an octave out, stay on the A string."
+    },
+    {
+      "id": "satisfaction",
+      "name": "The intro riff",
+      "artist": "The Rolling Stones",
+      "title": "(I Can't Get No) Satisfaction",
+      "part": "Lead",
+      "start": 12.088,
+      "end": 19.181,
+      "phrase": 9,
+      "string_hint": true,
+      "about": "Nine notes, only three different ones, all on the A string. The rhythm is the tricky part: listen for where the long notes fall."
+    },
+    {
+      "id": "bites-the-dust",
+      "name": "The riff",
+      "artist": "Queen",
+      "title": "Another One Bites the Dust",
+      "part": "Lead",
+      "start": 23.067,
+      "end": 31.82,
+      "phrase": 9,
+      "string_hint": false,
+      "about": "The final test: no string given this time, and it crosses two. It's the bass line's riff an octave up; if the coach says you're an octave low, you've found the bass's note."
+    }
+  ]
+}

@@ -39,6 +39,20 @@ pub enum Icon {
     Synth,
     Track,
     Gear,
+    /// A mortarboard: the Lessons page (new in quickRS, P13.4; not in rsplay.neu).
+    Lesson,
+    /// The tab's bars wider or narrower: an arrow both ways between two bar lines (new in quickRS).
+    Width,
+    /// The tab's strings further apart or closer: the same, upright (new in quickRS).
+    Height,
+    /// Compact rows: four lines close together (new in quickRS).
+    Rows,
+    /// Leave full screen: Expand's arrows turned inwards (new in quickRS).
+    Shrink,
+    /// The 3D highway: lanes running away to the horizon.
+    Highway,
+    /// Invert the strings: an arrow up beside an arrow down.
+    Invert,
 }
 
 impl Icon {
@@ -74,6 +88,13 @@ impl Icon {
             "synth" => Icon::Synth,
             "track" => Icon::Track,
             "gear" => Icon::Gear,
+            "lesson" => Icon::Lesson,
+            "width" => Icon::Width,
+            "height" => Icon::Height,
+            "rows" => Icon::Rows,
+            "shrink" => Icon::Shrink,
+            "highway" => Icon::Highway,
+            "invert" => Icon::Invert,
             _ => return None,
         })
     }
@@ -299,6 +320,54 @@ pub fn icon_image(icon: Icon, size: u32, color: Color32) -> crate::raster::Image
             }
             p.circle(12.0, 12.0, 6.6, iu(2.2));
         }
+        Icon::Lesson => {
+            // the board, the cap under it, and the tassel
+            p.polygon(&[(1.5, 9.0), (12.0, 4.0), (22.5, 9.0), (12.0, 14.0)], 0);
+            p.stroke(
+                &[(6.0, 11.5), (6.0, 16.5), (12.0, 19.5), (18.0, 16.5), (18.0, 11.5)],
+                2.0,
+            );
+            p.stroke(&[(20.5, 10.0), (20.5, 16.0)], 1.6);
+            p.circle(20.5, 17.0, 1.6, 0);
+        }
+        Icon::Width => {
+            p.stroke(&[(3.0, 5.0), (3.0, 19.0)], 2.2);
+            p.stroke(&[(21.0, 5.0), (21.0, 19.0)], 2.2);
+            p.stroke(&[(7.0, 12.0), (17.0, 12.0)], 2.2);
+            p.stroke(&[(10.0, 8.5), (7.0, 12.0), (10.0, 15.5)], 2.2);
+            p.stroke(&[(14.0, 8.5), (17.0, 12.0), (14.0, 15.5)], 2.2);
+        }
+        Icon::Height => {
+            p.stroke(&[(5.0, 3.0), (19.0, 3.0)], 2.2);
+            p.stroke(&[(5.0, 21.0), (19.0, 21.0)], 2.2);
+            p.stroke(&[(12.0, 7.0), (12.0, 17.0)], 2.2);
+            p.stroke(&[(8.5, 10.0), (12.0, 7.0), (15.5, 10.0)], 2.2);
+            p.stroke(&[(8.5, 14.0), (12.0, 17.0), (15.5, 14.0)], 2.2);
+        }
+        Icon::Rows => {
+            for y in [5.0, 9.5, 14.5, 19.0] {
+                p.stroke(&[(4.0, y), (20.0, y)], 2.2);
+            }
+        }
+        Icon::Shrink => {
+            p.stroke(&[(14.0, 4.0), (14.0, 10.0), (20.0, 10.0)], 2.4);
+            p.stroke(&[(14.0, 10.0), (20.5, 3.5)], 2.4);
+            p.stroke(&[(10.0, 20.0), (10.0, 14.0), (4.0, 14.0)], 2.4);
+            p.stroke(&[(10.0, 14.0), (3.5, 20.5)], 2.4);
+        }
+        Icon::Highway => {
+            p.stroke(&[(3.0, 21.0), (9.5, 3.0)], 2.2);
+            p.stroke(&[(21.0, 21.0), (14.5, 3.0)], 2.2);
+            p.stroke(&[(12.0, 20.0), (12.0, 17.0)], 2.2);
+            p.stroke(&[(12.0, 12.0), (12.0, 10.0)], 2.0);
+            p.stroke(&[(12.0, 6.0), (12.0, 5.0)], 1.8);
+        }
+        Icon::Invert => {
+            p.stroke(&[(8.0, 20.0), (8.0, 4.0)], 2.2);
+            p.stroke(&[(4.5, 7.5), (8.0, 4.0), (11.5, 7.5)], 2.2);
+            p.stroke(&[(16.0, 4.0), (16.0, 20.0)], 2.2);
+            p.stroke(&[(12.5, 16.5), (16.0, 20.0), (19.5, 16.5)], 2.2);
+        }
     }
     p.s.smoothscale(size, size).image()
 }
@@ -393,6 +462,16 @@ mod tests {
         for (ic, name) in ALL {
             assert_eq!(Icon::from_name(name), Some(ic));
         }
+        // quickRS's own (no rsplay.neu dump to compare with, so not in ALL)
+        assert_eq!(Icon::from_name("lesson"), Some(Icon::Lesson));
+        for n in ["width", "height", "rows", "shrink"] {
+            assert!(Icon::from_name(n).is_some());
+        }
+        let img = icon_image(Icon::Lesson, 16, Color32::WHITE);
+        assert!(
+            img.rgba.chunks(4).any(|px| px[3] > 128),
+            "the lesson icon draws something"
+        );
     }
 
     /// Every icon against rsplay.neu's `_icon_surface` (QRS_NEU_DUMPS, see keys.rs).

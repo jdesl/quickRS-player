@@ -815,6 +815,211 @@ fn make_inset(pw: usize, ph: usize, rr: i32, rec: (i32, i32, f64, f64), fill: Co
     l.image(Some(&big.crop(p0, p0, pw, ph)))
 }
 
+// -- round 3: rubber wells and glass panels (mg300-mods/design/settings-dock-glass.html) ----------------------------
+
+/// How deep every well is pressed into the rubber (the mock's 0-1 `--depth`; the owner picked Shallow).
+const RUBBER_DEPTH: f64 = 0.12;
+/// How much lighter than the material a raised pad's face is (round 3).
+const PAD_LIGHTER: f32 = 0.05;
+/// How high glass panels float (the mock's 0-1 `--lift`; the owner wanted less depth than full).
+const GLASS_LIFT: f64 = 0.3;
+
+fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * k + 0.5) as u8;
+    Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
+/// (top lip shadow dy, its sigma) in pixels: `inset 0 (1+3d)px (2+7d)px`.
+fn rec_rubber(s: f64) -> (i32, f64) {
+    let d = RUBBER_DEPTH;
+    (pxd(1.0 + 3.0 * d, s).max(1), ((2.0 + 7.0 * d) / 2.0 * s).max(0.6))
+}
+
+/// A dip in matte rubber, no outline: a flat floor a shade darker, a shadow falling in from the top lip and a faint
+/// light catching the bottom lip (the mock's alphas, scaled by how strong the theme's own shadows and lights are).
+fn make_rubber(pw: usize, ph: usize, rr: i32, rec: (i32, f64), floor: Color32) -> Image {
+    let th = t();
+    let d = RUBBER_DEPTH as f32;
+    let (dy, sg) = rec;
+    let pad = (dy as f64 + 3.0 * sg).ceil() as i32 + 1;
+    let (bw, bh) = (pw + 2 * pad as usize, ph + 2 * pad as usize);
+    let big = Mask::rrect(pw as f32, ph as f32, rr as f32, pad as f32, pad as f32, bw, bh);
+    let p0 = pad as usize;
+    let lip = big.blur64(sg).shift(0, dy).crop(p0, p0, pw, ph).map(|v| 1.0 - v);
+    let shape = big.crop(p0, p0, pw, ph);
+    let catch = shape.minus(&shape.shift(0, -1));
+    let mut l = Layers::new(pw, ph);
+    l.over_all(crate::raster::rgbf(floor), 1.0);
+    l.over_c(th.shade, &lip.scale(((0.35 + 0.35 * d) * th.sh_a / 0.7).min(0.9)));
+    l.over_c(
+        th.hilite,
+        &catch.scale(((0.03 + 0.04 * d) * th.hi_a / 0.07).min(0.5)),
+    );
+    l.image(Some(&shape))
+}
+
+/// (shadow dy, its sigma) in pixels under a rubber pad: `0 1px 3px`.
+fn rec_pad(s: f64) -> (i32, f64) {
+    (pxd(1.0, s).max(1), (1.5 * s).max(0.6))
+}
+
+/// A pad of matte rubber standing just proud of the material (round 3's raised: the rubber dip turned over), `m` px
+/// of margin round the shape for its shadow: a flat face a shade lighter, a short soft shadow under it, a faint light
+/// along the top lip, no rim.
+fn make_pad(pw: usize, ph: usize, rr: i32, rec: (i32, f64), m: i32, face: Color32) -> Image {
+    let th = t();
+    let (dy, sg) = rec;
+    let (iw, ih) = (pw as i32 - 2 * m, ph as i32 - 2 * m);
+    let shape = Mask::rrect(iw as f32, ih as f32, rr as f32, m as f32, m as f32, pw, ph);
+    let drop = shape.blur64(sg).shift(0, dy);
+    let lip = shape.minus(&shape.shift(0, 1));
+    let mut l = Layers::new(pw, ph);
+    l.over_c(th.shade, &drop.scale((0.4 * th.sh_a / 0.7).min(0.6)));
+    l.over_c(face, &shape);
+    l.over_c(th.hilite, &lip.scale((0.08 * th.hi_a / 0.07).min(0.5)));
+    l.image(None)
+}
+
+/// (drop dy, drop sigma, drop spread in, contact dy, contact sigma, glow sigma) in pixels, from the mock's
+/// `0 26L 50L -10L`, `0 4L 10L` and `0 0 (10+40L)` shadows.
+fn rec_glass(s: f64) -> (i32, f64, i32, i32, f64, f64) {
+    let l = GLASS_LIFT;
+    (
+        pxd(26.0 * l, s).max(1),
+        (25.0 * l * s).max(0.8),
+        pxd(10.0 * l, s).max(0),
+        pxd(4.0 * l, s).max(1),
+        (5.0 * l * s).max(0.6),
+        ((10.0 + 40.0 * l) / 2.0 * s).max(1.0),
+    )
+}
+
+/// The glass panel's frame, its face left clear: shadows and glow outside the shape only (the face is
+/// see-through), a 1 px edge and a light along the top.
+fn make_glass(pw: usize, ph: usize, rr: i32, rec: (i32, f64, i32, i32, f64, f64), m: i32) -> Image {
+    let th = t();
+    let lf = GLASS_LIFT as f32;
+    let (ddy, dsg, ins, cdy, csg, gsg) = rec;
+    let (iw, ih) = (pw as i32 - 2 * m, ph as i32 - 2 * m);
+    let shape = Mask::rrect(iw as f32, ih as f32, rr as f32, m as f32, m as f32, pw, ph);
+    let outside = shape.map(|v| 1.0 - v);
+    let drop = Mask::rrect(
+        (iw - 2 * ins) as f32,
+        (ih - 2 * ins) as f32,
+        (rr - ins).max(0) as f32,
+        (m + ins) as f32,
+        (m + ins) as f32,
+        pw,
+        ph,
+    );
+    let edge = Mask::rrect(
+        (iw + 2) as f32,
+        (ih + 2) as f32,
+        (rr + 1) as f32,
+        (m - 1) as f32,
+        (m - 1) as f32,
+        pw,
+        ph,
+    );
+    let mut l = Layers::new(pw, ph);
+    l.over_c(
+        th.hilite,
+        &shape.blur64(gsg).times(&outside).scale(0.03 + 0.17 * lf),
+    );
+    l.over_c(
+        th.float_sh,
+        &drop
+            .blur64(dsg)
+            .shift(0, ddy)
+            .times(&outside)
+            .scale(0.25 + 0.45 * lf),
+    );
+    l.over_c(
+        th.float_sh,
+        &shape
+            .blur64(csg)
+            .shift(0, cdy)
+            .times(&outside)
+            .scale(0.15 + 0.2 * lf),
+    );
+    l.over_c(th.float_rim, &edge.minus(&shape).scale(0.07 + 0.07 * lf));
+    l.over_c(
+        Color32::WHITE,
+        &shape.minus(&shape.shift(0, 1)).scale(0.04 + 0.08 * lf),
+    );
+    l.image(None)
+}
+
+thread_local! {
+    /// The page behind a panel, blurred heavily for glass, and the window rect it covers (this pass only).
+    static FROST: std::cell::Cell<Option<(egui::TextureId, Rect, u64)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Glass panels drawn this pass show `tex` (the page behind, blurred) through their face; `rect` is the window.
+pub fn set_frost(ctx: &egui::Context, tex: egui::TextureId, rect: Rect) {
+    FROST.set(Some((tex, rect, ctx.cumulative_pass_nr())));
+}
+
+fn frost(ctx: &egui::Context) -> Option<(egui::TextureId, Rect)> {
+    FROST
+        .get()
+        .filter(|f| f.2 == ctx.cumulative_pass_nr())
+        .map(|f| (f.0, f.1))
+}
+
+/// A floating panel in glass: the blurred page through a tinted face (a nearly solid one where nothing blurred is
+/// behind it, since egui can't blur the live page), then its frame.
+fn glass_px(p: &Painter, pr: PxRect, r: Option<f64>) {
+    let s = p.pixels_per_point();
+    let th = t();
+    let rr = radius_px(pr.w, pr.h, r, s);
+    let frosted = frost(p.ctx());
+    if let Some((tex, win)) = frosted {
+        rrect_mesh(
+            p,
+            pr,
+            rr as f32,
+            |_, _| Color32::WHITE,
+            Some((tex, PxRect::of(win, s))),
+        );
+    }
+    let a = if frosted.is_some() {
+        0.42 + 0.14 * (1.0 - GLASS_LIFT as f32)
+    } else {
+        0.9
+    };
+    let tint = Color32::from_rgba_unmultiplied(
+        th.base_hi.r(),
+        th.base_hi.g(),
+        th.base_hi.b(),
+        (a * 255.0).round() as u8,
+    );
+    rrect_mesh(p, pr, rr as f32, |_, _| tint, None);
+    let rec = rec_glass(sc(s));
+    let (ddy, dsg, _, _, _, gsg) = rec;
+    let m = (ddy as f64 + 3.0 * dsg).max(3.0 * gsg).ceil() as i32 + 2;
+    let key = (
+        "glass",
+        rr,
+        ddy,
+        dsg.to_bits(),
+        gsg.to_bits(),
+        m,
+        theme::generation(),
+    );
+    sliced(
+        p,
+        key,
+        (rr + 2 * m + 1) as usize,
+        pr.x - m,
+        pr.y - m,
+        pr.w + 2 * m,
+        pr.h + 2 * m,
+        Color32::WHITE,
+        |pw, ph| make_glass(pw, ph, rr, rec, m),
+    );
+}
+
 /// `_make_float`: the panel's drop and contact shadows, its 1 px edge, its face and the light along its top.
 fn make_float(pw: usize, ph: usize, rr: i32, rec: (i32, f64, i32, f64, i32), m: i32) -> Image {
     let th = t();
@@ -882,6 +1087,7 @@ fn rec_inset(depth: f32, s: f64, screen: bool) -> (i32, i32, f64, f64) {
 
 /// A shape standing up out of the material: light shadow top left, dark shadow bottom right, a 1 px light along
 /// its top-left edge, and a face (the material shaded along the diagonal, or `fill`). `lift` raises it (points).
+/// In the round 3 look it's a shallow rubber pad instead, at any `depth` (`make_pad`; the owner, 2026-10-15).
 pub fn raised(p: &Painter, rect: Rect, r: Option<f32>, depth: f32, fill: Fill, lift: f32) {
     let ppp = p.pixels_per_point();
     raised_px(
@@ -902,6 +1108,31 @@ pub(crate) fn raised_px(p: &Painter, pr: PxRect, r: Option<f64>, depth: f32, fil
         return;
     }
     let rr = radius_px(pr.w, pr.h, r, ppp);
+    if !theme::classic() {
+        let th = t();
+        let face = match fill {
+            Fill::Base => th.base,
+            Fill::Color(col) => col,
+        };
+        let face = mix(face, th.hilite, PAD_LIGHTER);
+        let rec = rec_pad(s64);
+        let m = (rec.0 as f64 + 3.0 * rec.1).ceil() as i32 + 1;
+        let pr = pr.moved(0, -lift);
+        let c = rr + 2 * m + 1;
+        let key = ("pad", rr, rec.0, rec.1.to_bits(), m, theme::generation());
+        sliced(
+            p,
+            (key, ck(face)),
+            c as usize,
+            pr.x - m,
+            pr.y - m,
+            pr.w + 2 * m,
+            pr.h + 2 * m,
+            Color32::WHITE,
+            |pw, ph| make_pad(pw, ph, rr, rec, m, face),
+        );
+        return;
+    }
     let rec = rec_raised(depth, s64);
     let (oh, sx, sy, sgh, sgs) = rec;
     let m = ((oh as f64 + 3.0 * sgh).max(sx.max(sy) as f64 + 3.0 * sgs)).ceil() as i32 + 1;
@@ -982,6 +1213,29 @@ fn sunk(p: &Painter, pr: PxRect, r: Option<f64>, depth: f32, fill: Fill, is_scre
         return;
     }
     let rr = radius_px(pr.w, pr.h, r, ppp);
+    if !theme::classic() {
+        let th = t();
+        let face = match fill {
+            Fill::Base => th.base,
+            Fill::Color(col) => col,
+        };
+        let floor = mix(face, th.screen, 0.25 + 0.35 * RUBBER_DEPTH as f32);
+        let rec = rec_rubber(sc(ppp));
+        let c = rr + (rec.0 as f64 + 3.0 * rec.1).ceil() as i32 + 2;
+        let key = ("rubber", rr, rec.0, rec.1.to_bits(), theme::generation());
+        sliced(
+            p,
+            (key, ck(floor)),
+            c as usize,
+            pr.x,
+            pr.y,
+            pr.w,
+            pr.h,
+            Color32::WHITE,
+            |pw, ph| make_rubber(pw, ph, rr, rec, floor),
+        );
+        return;
+    }
     let rec = rec_inset(depth, sc(ppp), is_screen);
     let (osh, ohi, sgs, sgh) = rec;
     let reach = (osh as f64 + 3.0 * sgs).max(ohi as f64 + 3.0 * sgh).ceil() as i32;
@@ -1369,6 +1623,10 @@ pub(crate) fn floating_px(p: &Painter, pr: PxRect, r: Option<f64>) {
     if pr.w < 1 || pr.h < 1 {
         return;
     }
+    if theme::is_dark() && !theme::classic() {
+        glass_px(p, pr, r);
+        return;
+    }
     let rr = radius_px(pr.w, pr.h, r, s);
     let rec = rec_float(sc(s));
     let (cdy, csg, ddy, dsg, ins) = rec;
@@ -1519,6 +1777,31 @@ pub fn image(p: &Painter, tex: egui::TextureId, rect: Rect, tint: Color32) {
 mod tests {
     use super::*;
     use crate::theme::ThemeName;
+
+    fn rgba(img: &Image, x: usize, y: usize) -> [u8; 4] {
+        let i = (y * img.w + x) * 4;
+        [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
+    }
+
+    /// Round 3: a rubber well is darkest under its top lip, its floor flat, its bottom lip caught by the light; a
+    /// glass panel's frame leaves its face clear and casts its shadow below.
+    #[test]
+    fn rubber_and_glass() {
+        let (w, h) = (80, 40);
+        let floor = MIDNIGHT_FLOOR;
+        let img = make_rubber(w, h, 8, rec_rubber(1.0), floor);
+        let mid = rgba(&img, 40, 20);
+        assert_eq!(&mid[..3], &floor.to_array()[..3]);
+        assert!(rgba(&img, 40, 0)[2] < mid[2]);
+        assert!(rgba(&img, 40, h - 1)[2] > mid[2]);
+        let rec = rec_glass(1.0);
+        let m = 40;
+        let g = make_glass(200 + 2 * m as usize, 100 + 2 * m as usize, 16, rec, m);
+        assert_eq!(rgba(&g, 100 + m as usize, 50 + m as usize)[3], 0);
+        assert!(rgba(&g, 100 + m as usize, 100 + m as usize + rec.0 as usize)[3] > 0);
+    }
+
+    const MIDNIGHT_FLOOR: Color32 = Color32::from_rgb(15, 28, 39);
 
     /// `_face_grad` as the Python app leaves a flat BASE face `w` x `h` (sunk: the other way round): the 24 x 24
     /// grid of what to add and what to take away, each smoothscaled up and blended in (BLEND_RGB_ADD / SUB).

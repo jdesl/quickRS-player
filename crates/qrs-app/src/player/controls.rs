@@ -44,7 +44,7 @@ pub fn toggle_group(st: &mut AppState, key: Option<&str>, open_all: Option<bool>
     let mut opened = panel_open(st);
     match (key, open_all) {
         (_, Some(true)) => {
-            opened = ["PART", "TAB", "TILES", "LYRICS", "SOUND"]
+            opened = ["PART", "TAB", "TILES", "LYRICS", "SOUND", "PITCH"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
@@ -269,7 +269,7 @@ impl PlayerView {
             })
             .collect();
         let neck = st.config.str("note_view", "piano") == "guitar";
-        vec![
+        let mut groups = vec![
             (
                 "PART",
                 "A next  ·  Shift+A previous  ·  1–6",
@@ -281,7 +281,7 @@ impl PlayerView {
             ),
             (
                 "TAB VIEW",
-                "rhythm notation N  ·  zoom ↑ ↓",
+                "rhythm notation N  ·  zoom ↑ ↓  ·  shape Alt+arrows",
                 vec![
                     (
                         String::new(),
@@ -289,6 +289,12 @@ impl PlayerView {
                         vec![
                             Btn::new("Zoom out", "↓", "zoom_out"),
                             Btn::new("Zoom in", "↑", "zoom_in"),
+                            Btn::new("Narrower bars", "Alt ←", "tab_narrower"),
+                            Btn::new("Wider bars", "Alt →", "tab_wider"),
+                            Btn::new("Strings closer", "Alt ↓", "tab_shorter"),
+                            Btn::new("Strings apart", "Alt ↑", "tab_taller"),
+                            Btn::onoff("Compact rows", self.tab.compact, "C", "tab_compact"),
+                            Btn::onoff("Full screen", self.tab_full, "F", "tab_full"),
                         ],
                     ),
                     (
@@ -334,7 +340,68 @@ impl PlayerView {
                 "tone T  ·  hear guitar M  ·  volumes 7 8 9 0",
                 sound,
             ),
-        ]
+        ];
+        if self.engine().is_some() {
+            groups.push(self.song_audio_group());
+        }
+        groups
+    }
+
+    /// The song's pitch shift and, for a stemmed feedpak, its stems: level, mute and solo each (P20.3).
+    fn song_audio_group(&self) -> (&'static str, &'static str, Vec<Section>) {
+        let pitch = self.mixer.pitch;
+        let mut secs: Vec<Section> = vec![
+            (
+                "PITCH (SEMITONES)".into(),
+                Cols::Fr(STEPPER.to_vec()),
+                vec![
+                    Btn::new("Lower", "Shift+↓", "pitch-"),
+                    Btn::value(super::songaudio::pitch_short(pitch)),
+                    Btn::new("Higher", "Shift+↑", "pitch+"),
+                ],
+            ),
+            (
+                String::new(),
+                Cols::N(1),
+                vec![Btn {
+                    active: pitch == 0,
+                    ..Btn::new("Original pitch", "", "pitch0")
+                }],
+            ),
+        ];
+        let Some(set) = self.mixer.stems.as_ref() else {
+            return ("PITCH", "transpose  Shift+↑ ↓", secs);
+        };
+        let mut rows = Vec::new();
+        let mut solos = Vec::new();
+        for (i, (s, m)) in set.stems.iter().zip(&self.mixer.mix).enumerate() {
+            // a stem with no name shows its id ("drums"): capitalised like the named ones
+            let mut c = s.info.name.chars();
+            let name: String = c
+                .next()
+                .map(|f| f.to_uppercase().chain(c).collect())
+                .unwrap_or_default();
+            rows.push(Btn::onoff(&name, m.on, "", &format!("stem:on:{i}")));
+            rows.push(Btn::new("−", "", format!("stem:down:{i}")));
+            rows.push(Btn::value(format!("{}%", (m.gain * 100.0).round() as i64)));
+            rows.push(Btn::new("+", "", format!("stem:up:{i}")));
+            solos.push(Btn::onoff(&name, m.solo, "", &format!("stem:solo:{i}")));
+        }
+        secs.push(("STEMS".into(), Cols::Fr(vec![1.2, 0.42, 0.7, 0.42]), rows));
+        secs.push(("SOLO".into(), Cols::N(2), solos));
+        secs.push((
+            String::new(),
+            Cols::N(1),
+            vec![Btn {
+                active: set.is_default(&self.mixer.mix),
+                ..Btn::new("Stems as the pack sets them", "", "stem:reset")
+            }],
+        ));
+        (
+            "PITCH & STEMS",
+            "transpose  Shift+↑ ↓  ·  each stem's level, mute, solo",
+            secs,
+        )
     }
 
     /// The controls in place of the tiles: the practice module (speed and difficulty knobs, the loop and its keys),
@@ -463,8 +530,8 @@ impl PlayerView {
             + ipx(12.0)
             + ipx(44.0)
             + ipx(10.0)
-            + 2.0 * kh
-            + kgap
+            + 3.0 * kh
+            + 2.0 * kgap
             + ipx(12.0)
             + ipx(26.0)
             + pad;
@@ -677,7 +744,33 @@ impl PlayerView {
                 self.acts.push((*action).into());
             }
         }
-        yy += 2.0 * kh + kgap + ipx(12.0);
+        yy += 2.0 * kh + kgap;
+        // the loop kept as a lick (the Saved licks page, under Home)
+        let has_loop = self.loop_a.zip(self.loop_b).is_some();
+        let r = PRect {
+            x: lx,
+            y: yy + kgap,
+            w: rx - lx,
+            h: kh,
+        };
+        if widgets::button(
+            ui,
+            r.rect(),
+            "loopkey-lick",
+            "Save loop as a lick",
+            "Ctrl+S",
+            ButtonStyle {
+                size: 12.0,
+                r: Some(12.0),
+                enabled: has_loop,
+                ..Default::default()
+            },
+        )
+        .clicked()
+        {
+            self.acts.push("lick_loop".into());
+        }
+        yy += kh + kgap + ipx(12.0);
         let row = PRect {
             x: lx,
             y: yy,
@@ -932,6 +1025,7 @@ fn group_static(k: &str) -> &'static str {
         "TILES" => "TILES",
         "LYRICS" => "LYRICS",
         "SOUND" => "SOUND",
+        "PITCH" => "PITCH",
         _ => "OTHER",
     }
 }

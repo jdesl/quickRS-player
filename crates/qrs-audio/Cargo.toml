@@ -13,6 +13,8 @@ workspace = true
 default = []
 # ASIO through cpal (needs LIBCLANG_PATH; the ASIO SDK is downloaded by the build)
 asio = ["cpal/asio"]
+# the real units' names in brackets beside the soundalike models (the owner's build only, D42, D58)
+brands = []
 
 [dependencies]
 cpal.workspace = true
@@ -28,6 +30,7 @@ rubato.workspace = true
 rtrb.workspace = true
 signalsmith-stretch.workspace = true
 crossbeam-channel.workspace = true
+realfft.workspace = true
 parking_lot.workspace = true
 
 [target.'cfg(windows)'.dependencies]

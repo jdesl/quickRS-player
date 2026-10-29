@@ -198,7 +198,7 @@ pub struct PlayArgs {
     pub speed: f64,
 }
 
-fn choice(part: Option<&str>, input: bool) -> Choice {
+pub(crate) fn choice(part: Option<&str>, input: bool) -> Choice {
     let Some(part) = part else { return Choice::Auto };
     if part.eq_ignore_ascii_case("none") {
         return Choice::Off;

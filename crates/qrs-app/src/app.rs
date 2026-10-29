@@ -10,7 +10,7 @@ use qrs_ui::theme::{self, ThemeName, t};
 use crate::backdrop::Backdrop;
 use crate::devstatus::DevStatus;
 use crate::home::HomeView;
-use crate::library::{LibView, Req, View};
+use crate::library::{LibView, Part, Req, View};
 use crate::loading::Loading;
 use crate::notewidget::NoteWidget;
 use crate::player::{PlayerReq, PlayerView};
@@ -31,6 +31,8 @@ pub struct Args {
     pub silent: bool,
     /// Open the first song whose title has this in it and play it (tests, measurements).
     pub play: Option<String>,
+    /// Started by the updater (P20.1): the old app's process id, waited for.
+    pub after_update: Option<u32>,
 }
 
 impl Args {
@@ -55,6 +57,7 @@ impl Args {
                 "--knobs" => a.knobs = it.next(),
                 "--silent" => a.silent = true,
                 "--play" => a.play = it.next(),
+                "--after-update" => a.after_update = it.next().and_then(|p| p.parse().ok()),
                 "-h" | "--help" => {
                     println!(
                         "quickrs [--silent] [--play TITLE] [--gallery] [--screenshots DIR [--size WxH]] [--theme midnight|graphite|daylight] [--knobs amp|pedal|chrome|vintage]"
@@ -93,8 +96,14 @@ pub struct QuickRs {
     pub player: Option<PlayerView>,
     /// The settings panel, floating over the page it was opened from.
     pub settings: Option<SettingsView>,
+    /// The amp room (P22.2), over Home.
+    pub room: Option<crate::room::RoomView>,
     backdrop: Backdrop,
+    /// The library page under its dialogs, for glass dialogs (dark themes, round 3 look).
+    dlg_backdrop: Backdrop,
     devstatus: DevStatus,
+    /// The guitar input last seen and its tone (each input keeps its own tone, D26).
+    board_input: Option<(String, String)>,
     notewidget: NoteWidget,
     shot_applied: Option<usize>,
     /// Screenshot mode: the pointer's button is held down (a pressed control's shot).
@@ -106,6 +115,13 @@ pub struct QuickRs {
     /// --play: the song to open once the library is read, then start (`play_pending` until it's open).
     play: Option<String>,
     play_pending: bool,
+    /// A saved lick being opened: its loop (start, end) and name, set on the player once the song is open.
+    lick: Option<(f64, f64, String)>,
+    /// A lesson's riff being opened (the lesson and the riff's id), handed to the player once the song is open.
+    lesson: Option<(std::sync::Arc<qrs_library::Lesson>, String)>,
+    /// The first-time setup over the page (P23.14), and whether the first-run check has been made.
+    pub setup: Option<crate::settings::FirstSetup>,
+    setup_checked: bool,
 }
 
 impl QuickRs {
@@ -129,7 +145,11 @@ impl QuickRs {
         } else {
             AudioMode::Devices
         };
-        let state = AppState::new(&cc.egui_ctx, mode);
+        let mut state = AppState::new(&cc.egui_ctx, mode);
+        if shots.is_none() {
+            // a recording a crash left in the airlock goes to the recordings folder (P23.13)
+            crate::recording::recover_on_start(&mut state);
+        }
         if let Some(name) = &args.theme {
             theme::set_theme(ThemeName::parse(name));
         }
@@ -152,8 +172,11 @@ impl QuickRs {
             loading: None,
             player: None,
             settings: None,
+            room: None,
             backdrop: Backdrop::default(),
+            dlg_backdrop: Backdrop::default(),
             devstatus: DevStatus::default(),
+            board_input: None,
             notewidget: NoteWidget::default(),
             shot_applied: None,
             shot_pressed: false,
@@ -161,6 +184,10 @@ impl QuickRs {
             timed: (false, false),
             play: args.play.clone(),
             play_pending: false,
+            lick: None,
+            lesson: None,
+            setup: None,
+            setup_checked: false,
         }
     }
 
@@ -184,7 +211,62 @@ impl QuickRs {
             match r {
                 Req::Fullscreen => toggle_fullscreen(ctx),
                 Req::Play { g, part } => self.open_song(g, &part),
+                Req::Lick {
+                    g,
+                    part,
+                    start,
+                    end,
+                    name,
+                } => {
+                    self.open_song(g, &part);
+                    self.lick = Some((start, end, name));
+                }
+                Req::Lesson {
+                    g,
+                    part,
+                    lesson,
+                    riff,
+                } => {
+                    if let Some(l) = self.state.lesson(&lesson) {
+                        self.open_song(g, &part);
+                        self.lesson = Some((l, riff));
+                    }
+                }
                 Req::Settings(section) => self.open_settings(section),
+                Req::Setup => self.open_setup(),
+                Req::Room => self.open_room(),
+            }
+        }
+    }
+
+    /// The amp room (from Home's AMP ROOM button or A).
+    fn open_room(&mut self) {
+        if self.room.is_none() && self.player.is_none() && self.loading.is_none() {
+            self.state.previewer.stop();
+            self.room = Some(crate::room::RoomView::open(&mut self.state));
+        }
+    }
+
+    fn close_room(&mut self) {
+        crate::recording::leaving(&mut self.state, crate::recording::Page::Room);
+        if let Some(mut r) = self.room.take() {
+            r.leave(&mut self.state);
+        }
+        self.lib.view = View::Home;
+    }
+
+    /// A frame of the room: its keys, then it; Esc or Home leaves it.
+    fn room_frame(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let ctx = ui.ctx().clone();
+        let events = ctx.input(|i| i.events.clone());
+        if let Some(r) = &mut self.room {
+            for ev in &events {
+                r.handle(&mut self.state, ev);
+            }
+            r.ui(ui, &mut self.state, rect);
+            if r.closed {
+                self.close_room();
+                ctx.request_repaint();
             }
         }
     }
@@ -197,6 +279,9 @@ impl QuickRs {
             .unwrap_or_default();
         if self.player.is_some() {
             self.close_player();
+        }
+        if self.room.is_some() {
+            self.close_room();
         }
         if self.settings.is_some() {
             self.close_settings();
@@ -225,23 +310,66 @@ impl QuickRs {
         self.state.previewer.stop();
         let e = self.state.song(g).clone();
         let rate = self.state.audio.as_ref().map(|a| a.engine.rate());
+        self.lick = None;
+        self.lesson = None;
         self.loading = Some(Loading::start(g, &e, part, &self.state.keys, rate));
     }
 
     fn close_player(&mut self) {
+        crate::recording::leaving(&mut self.state, crate::recording::Page::Player);
         if let Some(mut p) = self.player.take() {
+            p.board_leave(&mut self.state);
+            let riff = p.coach.as_ref().map(|c| (c.lesson.id.clone(), c.riff.id.clone()));
+            p.coach_close(&mut self.state);
             p.close();
-            // back on the library with the song you played selected (its row now: the library may have been read
-            // again while it played)
-            self.lib.refresh(&self.state);
-            let g = self.state.row_of(&p.entry).unwrap_or(p.g);
-            if let Some(i) = self.lib.items.iter().position(|&x| x == g) {
-                self.lib.sel = i;
-                self.lib.top = i.saturating_sub(2);
+            if let Some((lesson, riff)) = riff {
+                // a lesson's riff: back on the Lessons page, with that riff selected
+                self.lib.select_riff(&mut self.state, &lesson, &riff);
+            } else {
+                // back on the library with the song you played selected (its row now: the library may have been
+                // read again while it played)
+                self.lib.refresh(&self.state);
+                let g = self.state.row_of(&p.entry).unwrap_or(p.g);
+                if let Some(i) = self.lib.items.iter().position(|&x| x == g) {
+                    self.lib.sel = i;
+                    self.lib.top = i.saturating_sub(2);
+                }
             }
         }
         self.state.save_config();
         self.state.version += 1; // the scores may have changed
+    }
+
+    /// Open a lesson's riff: its song on the riff's part, then the coach (as the Lessons page does).
+    fn open_riff(&mut self, lesson: &str, riff: &str) {
+        let Some(l) = self.state.lesson(lesson) else {
+            return;
+        };
+        let Some(r) = l.riff(riff).cloned() else {
+            return;
+        };
+        self.lib.select_riff(&mut self.state, lesson, riff);
+        let Some(g) = self.state.riff_row(&r) else {
+            self.state
+                .say(format!("{} by {} isn't in your library", r.title, r.artist));
+            return;
+        };
+        let e = self.state.song(g);
+        if e.needs_keys {
+            self.state.say(format!(
+                "{} needs Rocksmith's keys: add them in Settings > Directories",
+                r.title
+            ));
+            return;
+        }
+        let part = r
+            .part_of(&e.arrangements)
+            .map(|i| &e.arrangements[i])
+            .or_else(|| crate::library::last_part(&self.state, e))
+            .map(|a| a.key.clone());
+        let Some(part) = part else { return };
+        self.open_song(g, &part);
+        self.lesson = Some((l, r.id));
     }
 
     fn player_requests(&mut self) {
@@ -252,8 +380,29 @@ impl QuickRs {
             .unwrap_or_default();
         for r in reqs {
             match r {
-                PlayerReq::Library => self.close_player(),
+                PlayerReq::Library | PlayerReq::Lessons => self.close_player(),
                 PlayerReq::Settings(section) => self.open_settings(section),
+                PlayerReq::Riff { lesson, riff } => {
+                    self.close_player();
+                    self.open_riff(&lesson, &riff);
+                }
+                PlayerReq::Song { id } => {
+                    // (a song from the pedalboard editor's "in your library")
+                    let row = self
+                        .state
+                        .songs
+                        .iter()
+                        .position(|e| e.id() == id)
+                        .and_then(|i| self.state.groups.iter().position(|g| g.members.contains(&i)));
+                    if let Some(g) = row {
+                        let e = self.state.song(g).clone();
+                        if let Some(part) = crate::library::last_part(&self.state, &e).map(|a| a.key.clone())
+                        {
+                            self.close_player();
+                            self.open_song(g, &part);
+                        }
+                    }
+                }
             }
         }
     }
@@ -318,7 +467,96 @@ impl QuickRs {
         if let Some(s) = &mut self.settings {
             s.ui(ui, &mut self.state, self.player.as_mut(), rect, draw_panel);
             if s.closed {
+                let setup = s.first_setup;
                 self.close_settings();
+                if setup {
+                    self.open_setup();
+                }
+            }
+        }
+    }
+
+    /// The first-time setup opens by itself on a first run, or for a config with nothing of a user's in it (not
+    /// in screenshots, once a start).
+    fn check_setup(&mut self) {
+        if self.setup_checked || self.shots.is_some() {
+            return;
+        }
+        self.setup_checked = true;
+        let st = &self.state;
+        let keys = matches!(st.key_state, crate::keyfile::KeyState::Found { .. });
+        if crate::setup::due(&st.config, st.first_run, keys) {
+            self.open_setup();
+        }
+    }
+
+    /// The first-time setup over the page that's up (a first run, Settings' button, Home's Getting started).
+    pub fn open_setup(&mut self) {
+        if self.loading.is_some() {
+            return;
+        }
+        if let Some(p) = &mut self.player {
+            p.hold();
+        }
+        self.settings = None;
+        self.backdrop.clear();
+        self.setup = Some(crate::settings::FirstSetup::new());
+    }
+
+    fn close_setup(&mut self) {
+        let room = self.setup.take().is_some_and(|s| s.room);
+        self.backdrop.clear();
+        self.state.save_config();
+        if let Some(p) = &mut self.player {
+            p.reload_settings(&self.state);
+        }
+        if room {
+            if self.player.is_some() {
+                self.close_player();
+            }
+            self.open_room();
+        }
+    }
+
+    /// The setup over the page it was opened on, as the settings panel is (the page captured, then blurred under it).
+    fn setup_frame(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let ctx = ui.ctx().clone();
+        let events = ctx.input(|i| i.events.clone());
+        if let Some(s) = &mut self.setup {
+            for ev in &events {
+                if matches!(
+                    ev,
+                    Event::Key {
+                        key: Key::F2 | Key::F11,
+                        ..
+                    }
+                ) {
+                    continue;
+                }
+                s.handle(&mut self.state, ev);
+            }
+        }
+        let draw_panel = if self.backdrop.ready(&ctx) {
+            self.backdrop.draw(ui.painter(), rect);
+            if let Some(p) = &mut self.player {
+                p.update(&mut self.state);
+            }
+            true
+        } else {
+            if let Some(p) = &mut self.player {
+                p.ui_behind(ui, &mut self.state, rect);
+            } else {
+                self.pages(ui, rect, false);
+            }
+            if !self.backdrop.capturing() {
+                self.backdrop.capture(&ctx);
+            }
+            false
+        };
+        if let Some(s) = &mut self.setup {
+            s.ui(ui, &mut self.state, self.player.as_mut(), rect, draw_panel);
+            if s.closed {
+                self.close_setup();
             }
         }
     }
@@ -347,7 +585,21 @@ impl QuickRs {
                 ctx.request_repaint(); // the sidebar or a card went to the library: draw it next frame
             }
         } else {
-            self.lib.ui(ui, &mut self.state, area);
+            // glass dialogs: the page drawn alone until a capture of it is in (two frames), then its frosted copy
+            // under them (as the settings panel's backdrop)
+            let frost = input && self.lib.has_dialog() && theme::is_dark() && !theme::classic();
+            if !frost {
+                self.dlg_backdrop.clear();
+                self.lib.ui(ui, &mut self.state, area);
+            } else if self.dlg_backdrop.ready(&ctx) {
+                self.dlg_backdrop.draw_page(ui.painter(), ctx.content_rect());
+                self.lib.ui_part(ui, &mut self.state, area, Part::Dialogs);
+            } else {
+                self.lib.ui_part(ui, &mut self.state, area, Part::Page);
+                if !self.dlg_backdrop.capturing() {
+                    self.dlg_backdrop.capture(&ctx);
+                }
+            }
         }
         self.requests(&ctx);
     }
@@ -372,6 +624,9 @@ impl QuickRs {
         let Some(sh) = &self.shots else { return };
         let Some(i) = sh.index() else {
             // the shots are done: settings they changed go back before the config is saved
+            if self.room.is_some() {
+                self.close_room();
+            }
             for (k, v) in std::mem::take(&mut self.shot_saved) {
                 match v {
                     Some(v) => self.state.config.set(k, v),
@@ -388,11 +643,19 @@ impl QuickRs {
         let Some((page, shot_theme)) = sh.current().map(|s| (s.page, s.theme)) else {
             return;
         };
-        if page != shots::Page::Gallery && (self.state.scanning() || self.state.groups.is_empty()) {
-            return; // the library first
+        // the library first (the first-time setup's shots: read, songs or not)
+        let setup_shot = matches!(page, shots::Page::Setup(_));
+        if page != shots::Page::Gallery
+            && (self.state.scanning() || (self.state.groups.is_empty() && !setup_shot))
+        {
+            return;
         }
         self.shot_applied = Some(i);
         theme::set_theme(shot_theme);
+        self.setup = match page {
+            shots::Page::Setup(what) => Some(crate::settings::FirstSetup::staged(what)),
+            _ => None,
+        };
         self.screen = if page == shots::Page::Gallery {
             Screen::Gallery
         } else {
@@ -405,6 +668,7 @@ impl QuickRs {
         if page != shots::Page::DeviceOffer {
             self.devstatus = DevStatus::default(); // (a staged offer stays on its own shot)
         }
+        self.state.rec.clear_shot(); // (a staged recording is its shot's only)
         // settings the last shot changed go back; this shot's go in
         for (k, v) in std::mem::take(&mut self.shot_saved) {
             match v {
@@ -421,7 +685,20 @@ impl QuickRs {
             ["tuner", true],
             ["lyrics", false]
         ]);
+        let board_tiles = serde_json::json!([
+            ["board", true],
+            ["note", true],
+            ["score", true],
+            ["tuner", false],
+            ["lyrics", false]
+        ]);
         let staged: Vec<(&'static str, serde_json::Value)> = match page {
+            shots::Page::PlayerBoard
+            | shots::Page::BoardView
+            | shots::Page::PlayerAt("board_add")
+            | shots::Page::PlayerAt("board_sounds") => {
+                vec![("tiles", board_tiles), ("tone_v2", "board".into())]
+            }
             shots::Page::PlayerMg300
             | shots::Page::Mg300View
             | shots::Page::PlayerAt("tiles_scrolled")
@@ -437,15 +714,30 @@ impl QuickRs {
                     ["note", false]
                 ]),
             )],
-            shots::Page::PlayerAt("controls_more") => vec![(
-                "panel_open",
-                serde_json::json!(["PART", "TAB", "TILES", "LYRICS", "SOUND"]),
-            )],
+            shots::Page::PlayerAt("controls_more") => vec![
+                (
+                    "panel_open",
+                    serde_json::json!(["PART", "TAB", "TILES", "LYRICS", "SOUND"]),
+                ),
+                ("tiles", serde_json::json!([["board", false]])),
+            ],
+            // (the Python app's player shots: its tiles, the pedalboard's off)
+            p if p.is_player() => vec![("tiles", serde_json::json!([["board", false]]))],
             _ => Vec::new(),
         };
         for (k, v) in staged {
             self.shot_saved.push((k, self.state.config.get(k).cloned()));
             self.state.config.set(k, v);
+        }
+        if page == shots::Page::PlayerAt("board_sounds") {
+            // your sounds on the tile: the room's (made up when there are none); your board and the room's state
+            // go back when the shots move on
+            for k in ["tone_board", "room"] {
+                if !self.shot_saved.iter().any(|(s, _)| *s == k) {
+                    self.shot_saved.push((k, self.state.config.get(k).cloned()));
+                }
+            }
+            crate::room::stage_data(&mut self.state);
         }
         if page != shots::Page::Lib("loading") && self.loading.as_ref().is_some_and(|l| l.is_stub()) {
             self.loading = None;
@@ -481,9 +773,26 @@ impl QuickRs {
         self.lib.menu = None;
         self.lib.text_box = None;
         self.lib.query.clear();
+        // the AMP ROOM button staged on its shots only; the room on its own
+        self.lib.amp.listen = Default::default();
+        self.lib.amp.shot_hover = false;
+        if !matches!(page, shots::Page::Room(_)) && self.room.is_some() {
+            self.close_room();
+        }
         match page {
             shots::Page::Gallery => {}
             shots::Page::Home => self.lib.view = View::Home,
+            shots::Page::HomeAmp(what) => {
+                self.lib.view = View::Home;
+                // E2 three cents sharp at a good level (or clipping)
+                self.lib.amp.listen.stage(-19.0, 40.03, what == "hot");
+                self.lib.amp.shot_hover = what == "hover";
+            }
+            shots::Page::Room(what) => {
+                self.lib.view = View::Home;
+                self.stage_room(what);
+            }
+            shots::Page::Setup(_) => self.lib.view = View::Home,
             shots::Page::NoteWidget => self.lib.view = View::Home,
             shots::Page::DeviceOffer => {
                 self.lib.view = View::Home;
@@ -514,6 +823,22 @@ impl QuickRs {
                 self.lib.view = View::All;
                 self.lib.query = "the".into();
                 self.lib.sel = 0;
+                // (from the top: a player shot before this one leaves the list scrolled to its song's row, past
+                // the end of the search's few rows, and the list drew empty)
+                self.lib.top = 0;
+                self.lib.refresh(&self.state);
+            }
+            shots::Page::Lib("licks") => {
+                self.stage_licks();
+                self.lib.view = View::Licks;
+                self.lib.sel = 0;
+                self.lib.top = 0;
+                self.lib.refresh(&self.state);
+            }
+            shots::Page::Lib("lessons") => {
+                self.stage_lessons();
+                self.lib.go(&mut self.state, View::Lessons);
+                self.lib.refresh(&self.state);
             }
             shots::Page::Lib(what) => {
                 self.lib.view = if what == "fav" { View::Fav } else { View::All };
@@ -550,6 +875,127 @@ impl QuickRs {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+impl QuickRs {
+    /// Screenshot mode: the amp room in a state, with sounds saved and songs' tones to find (made up when there are
+    /// none).
+    fn stage_room(&mut self, what: &'static str) {
+        // (your board and the room's state go back when the shots move on)
+        for k in ["tone_board", "room"] {
+            if !self.shot_saved.iter().any(|(s, _)| *s == k) {
+                self.shot_saved.push((k, self.state.config.get(k).cloned()));
+            }
+        }
+        if self.room.is_none() {
+            crate::room::stage_data(&mut self.state);
+            self.room = Some(crate::room::RoomView::open(&mut self.state));
+        }
+        if let Some(r) = &mut self.room {
+            r.stage_shot(&mut self.state, what);
+        }
+    }
+
+    /// Screenshot mode: the first lesson's first item done and its second one under way (a theory item at its third
+    /// page), when no lesson has been started.
+    fn stage_lessons(&mut self) {
+        let st = &mut self.state;
+        if !st.userdata.lessons.is_empty() {
+            return;
+        }
+        let Some(l) = st.lessons.first().cloned() else {
+            return;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        if let Some(r) = l.riffs.first() {
+            let mut p = qrs_library::RiffProgress {
+                step: if r.kind == qrs_library::lessons::Kind::Ear {
+                    "check"
+                } else {
+                    "done"
+                }
+                .into(),
+                done: true,
+                listens: 5,
+                found: r.phrase as u32,
+                wrong: 14,
+                hints: 1,
+                seconds: 1260.0,
+                started: now - 86400.0,
+                finished: now - 82000.0,
+                ..Default::default()
+            };
+            p.record(0.7, 0.96);
+            p.record(0.85, 0.92);
+            p.record(1.0, 0.94);
+            st.userdata.set_riff_progress(&l.id, &r.id, &p);
+        }
+        if let Some(r) = l.riffs.get(1) {
+            let p = qrs_library::RiffProgress {
+                step: match r.kind {
+                    qrs_library::lessons::Kind::Theory => "p2",
+                    qrs_library::lessons::Kind::Learn => "practise",
+                    _ => "notes",
+                }
+                .into(),
+                listens: 5,
+                found: 4,
+                wrong: 6,
+                seconds: 420.0,
+                started: now - 3600.0,
+                ..Default::default()
+            };
+            st.userdata.set_riff_progress(&l.id, &r.id, &p);
+        }
+    }
+
+    /// Screenshot mode: three saved licks (from the first playable songs) when the user data has none.
+    fn stage_licks(&mut self) {
+        if !self.state.userdata.licks.is_empty() {
+            return;
+        }
+        let st = &mut self.state;
+        let rows: Vec<usize> = (0..st.groups.len())
+            .filter(|&g| st.listed(g) && st.song(g).playable())
+            .take(3)
+            .collect();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let staged = [
+            ("Chorus", (29, 31), 61.2, 72.4),
+            ("Solo", (45, 48), 118.0, 131.5),
+            ("Intro", (1, 4), 0.8, 9.6),
+        ];
+        for (n, &g) in rows.iter().enumerate() {
+            let (sec, bars, a, b) = staged[n];
+            let e = st.song(g).clone();
+            let Some(part) = e.arrangements.first() else {
+                continue;
+            };
+            let sections = vec![sec.to_string()];
+            st.userdata.add_lick(qrs_library::Lick {
+                song: e.id(),
+                canonical: st.groups[g].canonical.clone(),
+                part: part.name.clone(),
+                part_key: part.key.clone(),
+                start: a,
+                end: b,
+                title: e.display_title(),
+                artist: e.artist.clone(),
+                tuning: part.tuning.clone(),
+                name: qrs_library::Lick::auto_name(&sections, Some(bars), a),
+                sections,
+                bars: Some(bars),
+                saved: now - 3600.0 * 26.0 * (2 - n) as f64,
+                other: Default::default(),
+            });
         }
     }
 }
@@ -623,6 +1069,7 @@ impl eframe::App for QuickRs {
         let ctx = ui.ctx().clone();
         if !self.timed.0 {
             self.timed.0 = true;
+            crate::gpu::drawn();
             let px = ctx.content_rect().size() * ctx.pixels_per_point();
             crate::applog::write(&format!(
                 "startup: first frame at {} ms, window {:.0} x {:.0} pixels",
@@ -684,7 +1131,7 @@ impl eframe::App for QuickRs {
                 .map(|f| f.path().to_path_buf())
                 .collect()
         });
-        if self.shots.is_none() && self.loading.is_none() {
+        if self.shots.is_none() && self.loading.is_none() && self.setup.is_none() {
             for path in dropped {
                 let ext = path
                     .extension()
@@ -697,8 +1144,14 @@ impl eframe::App for QuickRs {
                 }
             }
         }
-        // F2: the settings panel, over whatever page is showing (not while a song is loading)
-        if ctx.input(|i| i.key_pressed(Key::F2)) && self.loading.is_none() && self.screen == Screen::Pages {
+        // F2: the settings panel, over whatever page is showing (not while a song is loading, nor the first-time
+        // setup)
+        if ctx.input(|i| i.key_pressed(Key::F2))
+            && self.loading.is_none()
+            && self.screen == Screen::Pages
+            && self.room.is_none()
+            && self.setup.is_none()
+        {
             if self.settings.is_some() {
                 self.close_settings();
             } else {
@@ -706,9 +1159,30 @@ impl eframe::App for QuickRs {
             }
         }
         self.state.refresh();
+        self.check_setup();
+        // an update is in place: start it, and close this one
+        if self.state.updater.take_restart() {
+            match crate::update::relaunch() {
+                Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                Err(e) => self.state.say_error(format!(
+                    "Updated; couldn't start it again ({e}): please open quickRS"
+                )),
+            }
+        }
+        // each guitar input with its own tone: the pedalboard on a dry interface, "as is" on an amp modeller
+        if let Some(t) = crate::pedalboard::follow_input(&mut self.state, &mut self.board_input)
+            && let Some(p) = &mut self.player
+        {
+            p.say(
+                format!("Tone: {}", crate::tones::label(&t)),
+                "  \u{b7}  this input's tone",
+            );
+        }
         // the sound devices: lost, back, switched, the channel found (told where you are)
         for (msg, tail) in self.devstatus.poll(&self.state) {
-            if let Some(s) = &mut self.settings {
+            if let Some(s) = &mut self.setup {
+                s.say(format!("{msg}{tail}"));
+            } else if let Some(s) = &mut self.settings {
                 s.say(format!("{msg}{tail}"));
             } else if let Some(p) = &mut self.player {
                 p.say_for(msg, tail, 4.0);
@@ -743,12 +1217,27 @@ impl eframe::App for QuickRs {
             }) {
                 Ok(loaded) => {
                     let mut p = PlayerView::new(&mut self.state, loaded);
-                    if let Some(page) = self.shots.as_ref().and_then(|s| s.current()).map(|s| s.page) {
+                    if let Some((a, b, name)) = self.lick.take() {
+                        p.set_lick_loop(a, b, &name);
+                    }
+                    if let Some((lesson, riff)) = self.lesson.take() {
+                        p.start_lesson(&mut self.state, lesson, &riff);
+                    }
+                    let shot_page = self.shots.as_ref().and_then(|s| s.current()).map(|s| s.page);
+                    if let Some(page) = shot_page {
                         p.prepare_shot(&mut self.state, Some(page));
                     }
                     self.player = Some(p);
+                    // (a settings shot taken first: its panel over the song just opened)
+                    if let Some(shots::Page::Settings(sec)) = shot_page {
+                        self.open_settings(sec);
+                    }
                 }
-                Err(e) => self.state.say_error(format!("Couldn't open {title}: {e}")),
+                Err(e) => {
+                    self.lick = None;
+                    self.lesson = None;
+                    self.state.say_error(format!("Couldn't open {title}: {e}"))
+                }
             }
         }
         match self.screen {
@@ -756,22 +1245,53 @@ impl eframe::App for QuickRs {
             Screen::Pages => {
                 if let Some(l) = &self.loading {
                     l.draw(ui.painter(), rect);
+                } else if self.setup.is_some() {
+                    self.setup_frame(ui, rect);
                 } else if self.settings.is_some() {
                     self.settings_frame(ui, rect);
                 } else if let Some(p) = &mut self.player {
+                    if let Some(t) = crate::shotclock::shot_now() {
+                        p.shot_seq_frame(t); // (a screenshot sequence: the song at this frame's time)
+                    }
                     p.ui(ui, &mut self.state, rect);
                     self.player_requests();
+                } else if self.room.is_some() {
+                    self.room_frame(ui, rect);
                 } else {
                     self.pages(ui, rect, true);
                 }
-                if self.loading.is_none() {
+                if self.loading.is_none() && self.setup.is_none() {
                     self.devstatus.ui(ui, &mut self.state, rect);
+                }
+                // a recording that stopped by itself; the "Saved" notice over whatever page is up (P23.9)
+                if let Some((a, b)) = crate::recording::poll(&mut self.state) {
+                    match &mut self.player {
+                        Some(p) => p.say_for(a, b, 4.0),
+                        None => self.state.say(format!("{a}{b}")),
+                    }
+                }
+                // (above the player's transport, or the room's strip)
+                let gap = if self.player.is_some() { 150.0 } else { 110.0 };
+                crate::recording::saved_notice(ui, &mut self.state, rect, gap);
+                // a newer version (P20.1): its notice, not over a song
+                if self.loading.is_none()
+                    && self.player.is_none()
+                    && self.shots.is_none()
+                    && self.setup.is_none()
+                {
+                    crate::update::notice(ui, &mut self.state, rect);
                 }
             }
         }
-        // the note widget: its own little window (in screenshot mode, drawn on its shot instead)
-        if self.shots.is_none() {
-            self.notewidget.ui(&ctx, &mut self.state);
+        // the note widget: its own little window (in screenshot mode, drawn on its shot instead); not over the
+        // first-time setup but on its own page there, to be seen
+        let setup_hides = self
+            .setup
+            .as_ref()
+            .is_some_and(|s| s.page() != crate::setup::Page::Widget);
+        if self.shots.is_none() && !setup_hides {
+            let arr = self.player.as_ref().map(|p| &p.chart.arr);
+            self.notewidget.ui(&ctx, &mut self.state, arr);
         } else if self.shots.as_ref().and_then(|s| s.current()).map(|s| s.page)
             == Some(shots::Page::NoteWidget)
         {
@@ -783,6 +1303,7 @@ impl eframe::App for QuickRs {
             // pages wait for the library (and the player for its song)
             let ready = match sh.current().map(|s| s.page) {
                 Some(shots::Page::Gallery) => true,
+                Some(shots::Page::Setup(_)) => !self.state.scanning() && self.player.is_none(),
                 Some(p) if p.is_player() => self.player.is_some() && self.loading.is_none(),
                 _ => !self.state.scanning() && !self.state.groups.is_empty() && self.player.is_none(),
             };
@@ -801,6 +1322,13 @@ impl eframe::App for QuickRs {
     }
 
     fn on_exit(&mut self) {
+        let _ = crate::recording::stop(&mut self.state); // (a recording running: saved)
+        if let Some(p) = &mut self.player {
+            p.coach_close(&mut self.state); // a lesson's riff: where it got to
+        }
+        if let Some(mut r) = self.room.take() {
+            r.leave(&mut self.state); // the room's rig and scenes kept
+        }
         self.state.save_config();
     }
 }

@@ -1,0 +1,192 @@
+{
+  "id": "bends-vibrato-1",
+  "number": 4,
+  "course": "Rock and blues foundations",
+  "course_order": 3,
+  "title": "Bends, vibrato and a B.B. King solo",
+  "summary": "Bend notes in tune, make them sing with vibrato, then learn the thirty-second intro solo of The Thrill Is Gone in three chunks and whole.",
+  "intro": [
+    "Bends and vibrato turn a scale into a voice. A bend pushes the string sideways so the note slides up to another pitch. Vibrato is a small, steady wobble on a held note. Without them, the blues sounds like a typing exercise.",
+    "The hard part of bending is pitch, not strength. Every bend aims at a real note, usually two frets up (a full tone) or one fret up (a semitone). Play the target note first, fretted, then bend up until your bend matches it. Your ear is the judge: if the bent note sounds lower than the fretted one, push further.",
+    "Then a whole solo. B.B. King's intro to The Thrill Is Gone is thirty seconds of the best vibrato in blues, almost all in box 1 of B minor, the same box as Reptilia (Songs, lesson 2). Learn it in three chunks, then play it whole with the record."
+  ],
+  "tips": [
+    "Bend with three fingers. Ring finger on the note, middle and first fingers on the same string behind it, all pushing together.",
+    "The power comes from the wrist turning, like turning a door handle, not from the fingers pushing.",
+    "Check the target. Play the note two frets up, then bend to match it. Flat bends are the most common blues mistake.",
+    "Vibrato: bend a tiny bit and let it back, over and over, in time with the song. Even and slow beats fast and nervous.",
+    "Mute the strings you're not playing. A bent string can catch the one next to it.",
+    "Bending hurts at first. Little and often, and stop if your fingertips are sore."
+  ],
+  "credit": "Justin Sandercoe (justinguitar.com) teaches string bending in his Intermediate Method with exact hand positions and exercises to get bends in tune, and blues vibrato as its own lesson in Essential Blues Lead Guitar. The 'play the target note, then bend to it' check and three-finger bending come from those lessons and from most blues teachers. Learning a famous solo in chunks and then whole follows his song-learning approach.",
+  "riffs": [
+    {
+      "id": "going-down-bends",
+      "kind": "learn",
+      "name": "Bend and hold",
+      "artist": "Freddie King",
+      "title": "Going Down",
+      "part": "Lead",
+      "start": 14.95,
+      "end": 24.15,
+      "about": "Freddie King bends one note again and again: C on the B string at fret 13, pushed up a full tone to D. Bend after bend in nine seconds is perfect practice, and every one has to land on the same pitch.",
+      "how": [
+        "Before you start, play fret 15 on the B string. That D is the target.",
+        "Ring finger on fret 13, middle finger on 12, first finger on 11. Push all three up towards the ceiling.",
+        "The first bend is held with vibrato. The rest are quick: bend, pick, let down.",
+        "In the middle there's a smaller bend on the G string at fret 12, only a semitone."
+      ]
+    },
+    {
+      "id": "purple-haze-lick",
+      "kind": "learn",
+      "name": "The opening lick",
+      "artist": "Jimi Hendrix",
+      "title": "Purple Haze",
+      "part": "Lead",
+      "start": 17.1,
+      "end": 21.1,
+      "about": "Ten notes from Hendrix: a slide up, a tiny bend, a long note with vibrato, then a drop to the bottom of the neck. Every expressive trick in four seconds.",
+      "how": [
+        "Pick fret 7 on the D string and slide it up to 9, then play fret 7 on the G string.",
+        "Fret 8 on the B string with a quarter-tone curl: barely a bend, just a push.",
+        "Back to fret 7 on the D string and hold it with wide, slow vibrato.",
+        "Slide down the D string, pick fret 3 and slide it up to 5, play the open D and open low E, then slide up the A string from fret 5 to 7 and shake it."
+      ]
+    },
+    {
+      "id": "thrill-1",
+      "kind": "learn",
+      "name": "Intro solo, part 1",
+      "artist": "B.B. King",
+      "title": "The Thrill Is Gone",
+      "part": "Combo",
+      "start": 12.58,
+      "end": 23.3,
+      "about": "The first phrase: one long note with B.B.'s famous vibrato, then a walk around box 1 at the seventh fret with two full-tone bends. Every note is in the box.",
+      "how": [
+        "First note: high E string, fret 7, with your first finger. B.B. shakes it with the whole hand, pivoting from the wrist.",
+        "The bends are on the G string at fret 9, a full tone up. Check the target: fret 11.",
+        "The run down uses frets 7 and 9 on the G and D strings. First finger on 7, ring finger on 9.",
+        "Hold the B on the D string and give it vibrato before the last bend."
+      ]
+    },
+    {
+      "id": "thrill-2",
+      "kind": "learn",
+      "name": "Intro solo, part 2",
+      "artist": "B.B. King",
+      "title": "The Thrill Is Gone",
+      "part": "Combo",
+      "start": 23.33,
+      "end": 33.3,
+      "about": "The second phrase lives on the high E string. Big full-tone bends from fret 10, and a climb to fret 12 with small curls on each note.",
+      "how": [
+        "Full-tone bends at fret 10 on the high E: bend it to match fret 12.",
+        "Pull the string down towards the floor to bend on the high E. Pushing up would slide it off the neck.",
+        "The climb: frets 10, 11 and 12, each with a small curl, then a full bend at 12.",
+        "Four bends go up a full tone, one only a semitone, and the curls only a quarter. Listen for which is which."
+      ]
+    },
+    {
+      "id": "thrill-3",
+      "kind": "learn",
+      "name": "Intro solo, part 3",
+      "artist": "B.B. King",
+      "title": "The Thrill Is Gone",
+      "part": "Combo",
+      "start": 33.35,
+      "end": 43.0,
+      "about": "The last phrase steps up to the twelfth fret on the B and high E strings, then falls back home to the seventh fret.",
+      "how": [
+        "B string fret 12 is the same B as high E fret 7. B.B. uses it to reach higher notes without moving far.",
+        "A full bend at fret 12 on the high E, then a pull-off down to fret 10.",
+        "The hammer-on from 10 to 12 and pull-off from 10 to 7 should be smooth and even.",
+        "End on the B at fret 7. It's the root, so it sounds like a full stop."
+      ]
+    },
+    {
+      "id": "thrill-box",
+      "kind": "scale",
+      "name": "B minor pentatonic, box 1",
+      "artist": "B.B. King",
+      "title": "The Thrill Is Gone",
+      "part": "Combo",
+      "start": 12.58,
+      "end": 23.3,
+      "about": "The box behind the solo, the same one you used for Reptilia. Over the record, play your own phrases with one bend and one held note with vibrato each. Fewer notes, more feeling.",
+      "scale": {
+        "name": "B minor pentatonic",
+        "root": "B",
+        "shape": [
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            10
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            9
+          ],
+          [
+            2,
+            7
+          ],
+          [
+            2,
+            9
+          ],
+          [
+            3,
+            7
+          ],
+          [
+            3,
+            9
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            4,
+            10
+          ],
+          [
+            5,
+            7
+          ],
+          [
+            5,
+            10
+          ]
+        ]
+      }
+    },
+    {
+      "id": "thrill-whole",
+      "kind": "learn",
+      "name": "The whole intro solo",
+      "artist": "B.B. King",
+      "title": "The Thrill Is Gone",
+      "part": "Combo",
+      "start": 12.58,
+      "end": 43.0,
+      "pass": 0.8,
+      "about": "All three parts joined: thirty seconds and fifty-four notes. Get each part solid first, then play it through with the record at full speed.",
+      "how": [
+        "The joins matter: the last note of each part rings into the first note of the next.",
+        "Keep your hand around the seventh fret and reach fret 10 with your little finger. Shift up for the twelfth-fret notes, then come back.",
+        "Aim for in-tune bends first and speed second.",
+        "When it's clean, play it with your own vibrato. That's what makes it yours."
+      ]
+    }
+  ]
+}

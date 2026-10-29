@@ -21,6 +21,9 @@ use qrs_ui::widgets::{self, ButtonStyle, RoundKind, button, button_width, intera
 
 use crate::state::AppState;
 
+mod lessons;
+mod licks;
+
 // -- the Python app's whole pixels ----------------------------------------------------------------------------------
 
 /// The Python app's scale (1 until the app sets one).
@@ -114,6 +117,10 @@ const PREVIEW_DELAY: f32 = 0.5;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum View {
     Home,
+    /// Saved licks (stretches of songs saved from the player).
+    Licks,
+    /// Lessons (P13.4): each lesson's notes beside its riffs.
+    Lessons,
     All,
     Fav,
     Recent,
@@ -127,6 +134,8 @@ impl View {
     pub fn title(&self) -> String {
         match self {
             View::Home => "Home".into(),
+            View::Licks => "Saved licks".into(),
+            View::Lessons => "Lessons".into(),
             View::All => "All songs".into(),
             View::Fav => "Favourites".into(),
             View::Recent => "Recently played".into(),
@@ -146,8 +155,35 @@ pub enum Req {
         g: usize,
         part: String,
     },
+    /// Open the player on a saved lick: row g's part `part` (its key), the stretch start..end looped.
+    Lick {
+        g: usize,
+        part: String,
+        start: f64,
+        end: f64,
+        name: String,
+    },
+    /// Open the player on a lesson's riff: row g's part `part` (its key), with the coach.
+    Lesson {
+        g: usize,
+        part: String,
+        lesson: String,
+        riff: String,
+    },
     Settings(&'static str),
+    /// The first-time setup (P23.14; the getting-started welcome's place, P20.2).
+    Setup,
     Fullscreen,
+    /// The amp room (P22.2).
+    Room,
+}
+
+/// Which of the library's layers `Library::ui_part` draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    All,
+    Page,
+    Dialogs,
 }
 
 pub struct TextBox {
@@ -237,6 +273,51 @@ pub fn txt(
     )
 }
 
+/// Row g's format (P20.2: people asked which they're looking at): "feedpak" or "psarc", the one that plays first
+/// when the song is there as both ("feedpak + psarc").
+pub fn format_label(st: &AppState, g: usize) -> String {
+    let grp = &st.groups[g];
+    let first = if st.song(g).is_feedpak() {
+        "feedpak"
+    } else {
+        "psarc"
+    };
+    if grp.has_psarc(&st.songs) && grp.has_feedpak(&st.songs) {
+        let other = if first == "feedpak" { "psarc" } else { "feedpak" };
+        format!("{first} + {other}")
+    } else {
+        first.to_string()
+    }
+}
+
+/// The width of `format_mark` for `label`.
+pub fn format_mark_width(ctx: &egui::Context, label: &str, size: f32) -> f32 {
+    text::width(ctx, label, Style::new(size, 700, Color32::WHITE)) + px(12.0)
+}
+
+/// A song's format as a small outlined mark, its left edge's middle at `at`; returns where it went.
+pub fn format_mark(p: &Painter, label: &str, at: Pos2, size: f32) -> Rect {
+    let th = t();
+    let w = format_mark_width(p.ctx(), label, size);
+    let h = (size + px(7.0)).round();
+    let r = Rect::from_min_size(pos2(at.x, at.y - snap(h / 2.0)), vec2(w, h));
+    p.rect_stroke(
+        r,
+        h * 0.5,
+        egui::Stroke::new(pixels(1.0), th.caption.gamma_multiply(0.6)),
+        egui::StrokeKind::Inside,
+    );
+    text::draw(
+        p,
+        label,
+        r.center(),
+        Align2::CENTER_CENTER,
+        Style::new(size, 700, th.caption),
+        None,
+    );
+    r
+}
+
 pub fn caps(p: &Painter, s: &str, at: Pos2, size: f32, anchor: Align2, max_w: Option<f32>) -> Rect {
     text::caps(p, s, anchor_at(at), size, t().caption, anchor, room(max_w))
 }
@@ -299,6 +380,22 @@ pub struct LibView {
     list: Option<Rect>,
     counts: Option<(u64, Counts)>,
     tunings: Option<(u64, Vec<(String, usize)>)>,
+    /// The Saved licks page: indices into `userdata.licks` (newest first, searched), and each one's row.
+    pub lick_items: Vec<usize>,
+    lick_rows: Vec<Option<usize>>,
+    /// The Lessons page: (lesson, riff) of each riff listed, its song's row, and how far each list is scrolled
+    /// (the riffs, the lesson's notes beside them; points), with their most.
+    pub lesson_items: Vec<(usize, usize)>,
+    lesson_rows: Vec<Option<usize>>,
+    lesson_scroll: f32,
+    lesson_max: f32,
+    /// The selection moved by a key: scroll it into view when next drawn.
+    lesson_follow: bool,
+    notes_scroll: f32,
+    notes_max: f32,
+    notes_rect: Rect,
+    /// The AMP ROOM button pinned at the sidebar's foot (P22.1).
+    pub amp: crate::ampbutton::Amp,
     pub reqs: Vec<Req>,
 }
 
@@ -309,6 +406,8 @@ pub struct Counts {
     pub recent: usize,
     pub played: usize,
     pub unplayed: usize,
+    pub licks: usize,
+    pub lessons: usize,
     pub playlists: Vec<(String, usize)>,
 }
 
@@ -338,6 +437,17 @@ impl Default for LibView {
             list: None,
             counts: None,
             tunings: None,
+            lick_items: Vec::new(),
+            lick_rows: Vec::new(),
+            lesson_items: Vec::new(),
+            lesson_rows: Vec::new(),
+            lesson_scroll: 0.0,
+            lesson_max: 0.0,
+            lesson_follow: false,
+            notes_scroll: 0.0,
+            notes_max: 0.0,
+            notes_rect: Rect::NOTHING,
+            amp: Default::default(),
             reqs: Vec::new(),
         }
     }
@@ -379,7 +489,11 @@ impl LibView {
             return c.clone();
         }
         let ud = &st.userdata;
-        let mut c = Counts::default();
+        let mut c = Counts {
+            licks: ud.licks.len(),
+            lessons: st.lessons.len(),
+            ..Default::default()
+        };
         let mut row_ids: Vec<Vec<String>> = Vec::new();
         for g in Self::rows(st) {
             let ids = st.ids(g);
@@ -430,6 +544,14 @@ impl LibView {
             return;
         }
         self.key = Some(key);
+        if self.view == View::Licks {
+            self.refresh_licks(st);
+            return;
+        }
+        if self.view == View::Lessons {
+            self.refresh_lessons(st);
+            return;
+        }
         let ud = &st.userdata;
         let top_tunings: Vec<String> = self.tuning_counts(st).into_iter().take(6).map(|t| t.0).collect();
         let mut items: Vec<usize> = Self::rows(st)
@@ -509,6 +631,7 @@ impl LibView {
             self.sel = i;
         }
         self.sel = self.sel.min(self.items.len().saturating_sub(1));
+        self.top = first_row(self.top, self.items.len());
     }
 
     pub fn selected(&self) -> Option<usize> {
@@ -695,6 +818,14 @@ impl LibView {
                 }
             }
             "new_pl" => self.new_playlist(None, None),
+            "rescan" if self.view == View::Lessons => {
+                st.reload_lessons();
+                let n = st.lessons.len();
+                st.say(format!(
+                    "Lessons read again: {n} lesson{}",
+                    if n == 1 { "" } else { "s" }
+                ));
+            }
             "rescan" => {
                 st.library
                     .rescan(st.keys.clone(), st.dirs.clone(), st.data.index());
@@ -710,19 +841,36 @@ impl LibView {
             }
             "settings" => self.reqs.push(Req::Settings("audio")),
             "fullscreen" => self.reqs.push(Req::Fullscreen),
+            "lick_open" => self.open_lick(st),
+            "lick_delete" => self.delete_lick(st),
+            "lesson_open" => self.open_riff(st),
+            "lesson_restart" => self.restart_riff(st),
             _ => {}
         }
     }
 
     /// Open a sidebar page (Home included).
     pub fn go(&mut self, st: &mut AppState, v: View) {
+        // (no Lessons page without the `lessons` feature, D50)
+        let v = if v == View::Lessons && !cfg!(feature = "lessons") {
+            View::Home
+        } else {
+            v
+        };
         if v == View::Home {
             self.query.clear();
             st.previewer.stop();
         }
+        if v == View::Lessons && self.view != View::Lessons {
+            self.lesson_scroll = 0.0;
+            self.notes_scroll = 0.0;
+        }
         self.view = v;
         self.sel = 0;
         self.top = 0;
+        if self.view == View::Lessons {
+            self.sel = self.first_unfinished(st);
+        }
     }
 
     // -- keys ---------------------------------------------------------------------------------------------------
@@ -742,6 +890,7 @@ impl LibView {
             return true;
         }
         match ev {
+            Event::Text(_) if self.view == View::Lessons => false, // (nothing to search)
             Event::Text(s) => {
                 let skip = self.skip_text.take();
                 for c in s.chars() {
@@ -762,6 +911,12 @@ impl LibView {
             } => {
                 let ctrl = modifiers.command;
                 self.skip_text = None;
+                if self.view == View::Licks {
+                    return self.handle_licks_key(st, area, *key, *modifiers);
+                }
+                if self.view == View::Lessons {
+                    return self.handle_lessons_key(st, area, *key, *modifiers);
+                }
                 let n = self.items.len();
                 match key {
                     Key::Backspace if self.query.is_empty() => self.view = View::All,
@@ -809,8 +964,20 @@ impl LibView {
                 let pos = st.ctx.input(|i| i.pointer.hover_pos()).unwrap_or_default();
                 if self.side_rect.contains(pos) {
                     self.side_scroll = (self.side_scroll - notches * 40.0).clamp(0.0, self.side_max);
+                } else if self.view == View::Lessons {
+                    if self.notes_rect.contains(pos) {
+                        self.notes_scroll = (self.notes_scroll - notches * 40.0).clamp(0.0, self.notes_max);
+                    } else {
+                        self.lesson_scroll =
+                            (self.lesson_scroll - notches * 40.0).clamp(0.0, self.lesson_max);
+                    }
                 } else {
-                    let max_top = self.items.len().saturating_sub(self.visible_rows(st, area)) as i64;
+                    let n = if self.view == View::Licks {
+                        self.lick_items.len()
+                    } else {
+                        self.items.len()
+                    };
+                    let max_top = n.saturating_sub(self.visible_rows(st, area)) as i64;
                     self.top = (self.top as i64 - (notches * 3.0) as i64).clamp(0, max_top.max(0)) as usize;
                 }
                 true
@@ -966,8 +1133,22 @@ impl LibView {
     }
 
     pub fn ui(&mut self, ui: &mut Ui, st: &mut AppState, area: Rect) {
+        self.ui_part(ui, st, area, Part::All);
+    }
+
+    /// A dialog (picker, playlist menu, name box) is up.
+    pub fn has_dialog(&self) -> bool {
+        self.picker.is_some() || self.menu.is_some() || self.text_box.is_some()
+    }
+
+    /// The page, its dialogs, or both (glass dialogs go over a captured copy of the page, see `App::pages`).
+    pub fn ui_part(&mut self, ui: &mut Ui, st: &mut AppState, area: Rect, part: Part) {
         self.refresh(st);
         self.update_selection(st);
+        if part == Part::Dialogs {
+            self.draw_dialogs(ui, st, area);
+            return;
+        }
         let p = ui.painter().clone();
         let th = t();
         let (side, main) = page_rects(area);
@@ -985,15 +1166,27 @@ impl LibView {
             Align2::LEFT_CENTER,
             Some(snap(main.width() / 3.0)),
         );
-        let total = self.counts(st).all;
-        let mut count = if self.items.len() != total {
-            format!(
-                "{} of {}",
-                fmt_int(self.items.len() as i64),
-                fmt_int(total as i64)
-            )
+        let licks = self.view == View::Licks;
+        let lessons = self.view == View::Lessons;
+        let total = if licks {
+            st.userdata.licks.len()
         } else {
-            format!("{} songs", fmt_int(total as i64))
+            self.counts(st).all
+        };
+        let shown = if licks {
+            self.lick_items.len()
+        } else {
+            self.items.len()
+        };
+        let noun = if licks { "licks" } else { "songs" };
+        let mut count = if lessons {
+            self.lessons_count(st)
+        } else if shown != total {
+            format!("{} of {}", fmt_int(shown as i64), fmt_int(total as i64))
+        } else if licks && total == 1 {
+            "1 lick".to_string()
+        } else {
+            format!("{} {noun}", fmt_int(total as i64))
         };
         if st.scanning() {
             use std::sync::atomic::Ordering::Relaxed;
@@ -1008,34 +1201,56 @@ impl LibView {
         let sort_label = format!("Sort: {}", SORTS[self.sort]);
         let sw = button_width(&st.ctx, &sort_label, "Tab", 14.0, false);
         let sort = Rect::from_min_size(pos2(main.max.x - sw, hy - px(24.0)), vec2(sw, px(48.0)));
-        if button(
-            ui,
-            sort,
-            "lib-sort",
-            &sort_label,
-            "Tab",
-            ButtonStyle {
-                size: 14.0,
-                r: Some(16.0),
-                ..Default::default()
-            },
-        )
-        .clicked()
+        if !licks
+            && !lessons
+            && button(
+                ui,
+                sort,
+                "lib-sort",
+                &sort_label,
+                "Tab",
+                ButtonStyle {
+                    size: 14.0,
+                    r: Some(16.0),
+                    ..Default::default()
+                },
+            )
+            .clicked()
         {
             self.act(st, area, "sort");
         }
         let bw = trunc_px((380.0 * scale()).min(ipx(main.width()) * 0.34));
-        let boxr = Rect::from_min_size(
-            pos2(sort.min.x - px(18.0) - bw, hy - px(26.0)),
-            vec2(bw, px(52.0)),
-        );
-        draw_search(
-            &p,
-            boxr,
-            &self.query,
-            &format!("Type to search {} songs", fmt_int(total as i64)),
-            &[],
-        );
+        let box_right = if licks || lessons {
+            main.max.x
+        } else {
+            sort.min.x - px(18.0)
+        };
+        let boxr = Rect::from_min_size(pos2(box_right - bw, hy - px(26.0)), vec2(bw, px(52.0)));
+        if !lessons {
+            // a click on Clear empties the search (as Esc does)
+            let mut hot = (false, false);
+            if !self.query.is_empty() {
+                let cr = search_clear_rect(ui.ctx(), boxr);
+                let resp = interact(ui, cr, "lib-search-clear", Sense::click());
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                hot = (resp.hovered(), resp.is_pointer_button_down_on());
+                if resp.clicked() {
+                    self.query.clear();
+                    self.sel = 0;
+                    self.top = 0;
+                }
+            }
+            draw_search(
+                &p,
+                boxr,
+                &self.query,
+                &format!("Type to search {} {noun}", fmt_int(total as i64)),
+                &[],
+                hot,
+            );
+        }
         txt(
             &p,
             &count,
@@ -1054,7 +1269,13 @@ impl LibView {
         self.draw_toolbar(ui, st, area, bar);
         let top = hy + px(26.0) + px(20.0);
         let well = Rect::from_min_max(pos2(main.min.x, top), pos2(main.max.x, bar.min.y - px(20.0)));
-        self.draw_list(ui, st, area, well);
+        if licks {
+            self.draw_licks(ui, st, area, well);
+        } else if lessons {
+            self.draw_lessons(ui, st, area, well);
+        } else {
+            self.draw_list(ui, st, area, well);
+        }
         if let Some((msg, at)) = &st.toast {
             if at.elapsed().as_secs_f32() < 5.0 {
                 widgets::toast(&p, msg, pos2(centerx(well), well.max.y - px(36.0)), "");
@@ -1064,6 +1285,12 @@ impl LibView {
                 st.toast = None;
             }
         }
+        if part == Part::All {
+            self.draw_dialogs(ui, st, area);
+        }
+    }
+
+    fn draw_dialogs(&mut self, ui: &Ui, st: &mut AppState, area: Rect) {
         if self.picker.is_some() {
             self.draw_picker(ui, st, area);
         }
@@ -1083,23 +1310,47 @@ impl LibView {
         let fav_on = self
             .selected()
             .is_some_and(|g| st.userdata.is_favorite(&st.ids(g)));
-        let mut left: Vec<(&str, Vec<&str>, &str, &str)> = vec![
-            (
-                "Favourite",
-                vec!["Ctrl", "D"],
-                "fav",
-                if fav_on { "fav" } else { "fav_off" },
-            ),
-            ("Add to playlist", vec!["Ctrl", "P"], "addto", ""),
-        ];
+        let lesson_verb = self.lesson_verb(st);
+        let mut left: Vec<(&str, Vec<&str>, &str, &str)> = if self.view == View::Licks {
+            vec![
+                ("Play the lick", vec!["Enter"], "lick_open", ""),
+                ("Delete", vec!["Del"], "lick_delete", "danger"),
+            ]
+        } else if self.view == View::Lessons {
+            vec![
+                (lesson_verb, vec!["Enter"], "lesson_open", ""),
+                ("Start the riff over", vec![], "lesson_restart", ""),
+            ]
+        } else {
+            vec![
+                (
+                    "Favourite",
+                    vec!["Ctrl", "D"],
+                    "fav",
+                    if fav_on { "fav" } else { "fav_off" },
+                ),
+                ("Add to playlist", vec!["Ctrl", "P"], "addto", ""),
+            ]
+        };
         if matches!(self.view, View::Playlist(_)) {
             left.push(("Remove", vec!["Del"], "remove", ""));
             left.push(("Rename", vec![], "rename_pl", ""));
             left.push(("Delete playlist", vec![], "delete_pl", "danger"));
         }
-        left.push(("Preview the selected song", vec![], "select_preview", "switch"));
+        if self.view != View::Licks && self.view != View::Lessons {
+            left.push(("Preview the selected song", vec![], "select_preview", "switch"));
+        }
         let right: Vec<(&str, Vec<&str>, &str, &str)> = vec![
-            ("Rescan", vec!["F5"], "rescan", "dim"),
+            (
+                if self.view == View::Lessons {
+                    "Read the lessons again"
+                } else {
+                    "Rescan"
+                },
+                vec!["F5"],
+                "rescan",
+                "dim",
+            ),
             ("Fullscreen", vec!["F11"], "fullscreen", "dim"),
             ("Settings", vec!["F2"], "settings", "dim"),
         ];
@@ -1332,7 +1583,10 @@ impl LibView {
             } else {
                 e.artist.clone()
             };
-            txt(
+            // the artist, then the format's mark
+            let fmt = format_label(st, g);
+            let fw = format_mark_width(&st.ctx, &fmt, 10.0) + px(8.0);
+            let sr = txt(
                 &lp,
                 &sub,
                 pos2(c_song, cy + px(10.0)),
@@ -1340,8 +1594,16 @@ impl LibView {
                 if e.needs_keys { th.miss } else { th.caption },
                 500,
                 Align2::LEFT_CENTER,
-                Some(tw),
+                Some((tw - fw).max(px(40.0))),
             );
+            let mx = if sub.is_empty() {
+                c_song
+            } else {
+                sr.max.x + px(8.0)
+            };
+            if mx + fw <= c_song + tw + px(8.0) {
+                format_mark(&lp, &fmt, pos2(mx, cy + px(10.0)), 10.0);
+            }
             txt(
                 &lp,
                 &main_tuning(&e),
@@ -1450,7 +1712,7 @@ impl LibView {
         if st.dirs.is_empty() {
             txt(
                 &p,
-                "No Rocksmith dlc folder found. Add it in Settings > Library.",
+                "No song folders yet: add one in Settings > Directories, or drop a folder on the window.",
                 pos2(r.min.x + px(16.0), r.min.y + px(80.0)),
                 15.0,
                 th.miss,
@@ -1564,6 +1826,8 @@ impl LibView {
         let tw = play.min.x - px(20.0) - x;
         let y = block.min.y + pad + px(4.0);
         let fav = st.userdata.is_favorite(&ids);
+        let fmt = format_label(st, g);
+        let fw = format_mark_width(ctx, &fmt, 11.0) + px(12.0);
         let tr = txt(
             p,
             &e.display_title(),
@@ -1572,9 +1836,10 @@ impl LibView {
             th.text,
             800,
             Align2::LEFT_TOP,
-            Some(tw - px(28.0)),
+            Some(tw - px(28.0) - fw),
         );
         let star = draw_star(p, pos2(tr.max.x + px(16.0), centery(tr)), 8.0, fav);
+        format_mark(p, &fmt, pos2(star.max.x + px(12.0), centery(tr)), 11.0);
         if interact(
             ui,
             inflate(star, pixels(8.0), pixels(8.0)),
@@ -1622,10 +1887,6 @@ impl LibView {
         } else {
             "not played yet".into()
         });
-        let src = st.groups[g].sources_label(&st.songs);
-        if src.contains('·') {
-            bits.push(src);
-        }
         txt(
             p,
             &bits.join("  ·  "),
@@ -1639,7 +1900,7 @@ impl LibView {
         if e.needs_keys {
             txt(
                 p,
-                "This psarc needs Rocksmith's keys (Settings > Library).",
+                "This psarc needs Rocksmith's keys: add them in Settings > Directories (F2).",
                 pos2(x, tr.max.y + px(56.0)),
                 13.0,
                 th.miss,
@@ -1718,7 +1979,11 @@ impl LibView {
         let counts = self.counts(st);
         let tc = self.tuning_counts(st);
         let (x0, wd) = (rect.min.x + px(12.0), rect.width() - px(24.0));
-        let clip = inflate(rect, -px(6.0), -px(6.0));
+        // the AMP ROOM button stays at the foot; the list scrolls in the room above it
+        let amp_h = px(60.0);
+        let amp = Rect::from_min_size(pos2(x0, rect.max.y - px(12.0) - amp_h), vec2(wd, amp_h));
+        let list = Rect::from_min_max(rect.min, pos2(rect.max.x, amp.min.y - px(6.0)));
+        let clip = inflate(list, -px(6.0), -px(6.0));
         let sp = p.with_clip_rect(clip);
         let mut y = rect.min.y + px(14.0) - snap(self.side_scroll);
         let top_y = y;
@@ -1842,6 +2107,24 @@ impl LibView {
             *y += px(h + 2.0);
         };
         item(&mut y, "Home", Some(View::Home), None, Some(Icon::Home), 44.0);
+        item(
+            &mut y,
+            "Saved licks",
+            Some(View::Licks),
+            Some(counts.licks),
+            Some(Icon::Note),
+            36.0,
+        );
+        if cfg!(feature = "lessons") {
+            item(
+                &mut y,
+                "Lessons",
+                Some(View::Lessons),
+                Some(counts.lessons),
+                Some(Icon::Lesson),
+                36.0,
+            );
+        }
         y += px(6.0);
         header(&mut y, "LIBRARY");
         item(&mut y, "All songs", Some(View::All), Some(counts.all), None, 36.0);
@@ -1877,6 +2160,18 @@ impl LibView {
             None,
             36.0,
         );
+        header(&mut y, "PLAYLISTS");
+        for (name, n) in &counts.playlists {
+            item(
+                &mut y,
+                name,
+                Some(View::Playlist(name.clone())),
+                Some(*n),
+                None,
+                36.0,
+            );
+        }
+        item(&mut y, "New playlist", None, None, Some(Icon::Plus), 36.0);
         header(&mut y, "TUNING");
         for (tn, n) in tc.iter().take(6) {
             item(&mut y, tn, Some(View::Tuning(tn.clone())), Some(*n), None, 36.0);
@@ -1892,21 +2187,9 @@ impl LibView {
                 36.0,
             );
         }
-        header(&mut y, "PLAYLISTS");
-        for (name, n) in &counts.playlists {
-            item(
-                &mut y,
-                name,
-                Some(View::Playlist(name.clone())),
-                Some(*n),
-                None,
-                36.0,
-            );
-        }
-        item(&mut y, "New playlist", None, None, Some(Icon::Plus), 36.0);
         // (side_scroll and side_max in points; the Python app's are pixels, hence its 0.5 and 1 px margins)
         let content = y - top_y + px(12.0);
-        self.side_max = snap(content - rect.height()).max(0.0);
+        self.side_max = snap(content - list.height()).max(0.0);
         self.side_scroll = self.side_scroll.clamp(0.0, self.side_max);
         if self.side_max > 0.0 {
             paint::fade_edges(
@@ -1922,7 +2205,7 @@ impl LibView {
                 icons::icon(
                     &p,
                     Icon::Down,
-                    pos2(centerx(rect), rect.max.y - px(12.0)),
+                    pos2(centerx(rect), list.max.y - px(12.0)),
                     16.0,
                     th.caption,
                 );
@@ -1936,6 +2219,9 @@ impl LibView {
                     th.caption,
                 );
             }
+        }
+        if self.amp.ui(ui, st, amp, self.view == View::Home) {
+            self.reqs.push(Req::Room);
         }
         if pick_resp.clicked() {
             st.toggle_theme();
@@ -2009,7 +2295,9 @@ impl LibView {
             .into_iter()
             .filter(|v| !v.is_empty())
             .collect();
-        txt(
+        let fmt = format_label(st, g);
+        let fw = format_mark_width(&ctx, &fmt, 11.0) + px(10.0);
+        let sr = txt(
             &p,
             &sub.join("  ·  "),
             pos2(tx, centery(art_r) + px(2.0)),
@@ -2017,7 +2305,13 @@ impl LibView {
             th.text_2,
             600,
             Align2::LEFT_TOP,
-            Some(tw),
+            Some(tw - fw),
+        );
+        format_mark(
+            &p,
+            &fmt,
+            pos2(if sub.is_empty() { tx } else { sr.max.x + px(10.0) }, centery(sr)),
+            11.0,
         );
         let mut y = art_r.max.y + px(18.0);
         caps(
@@ -2468,6 +2762,10 @@ fn static_str(s: &str) -> &'static str {
         "rescan" => "rescan",
         "fullscreen" => "fullscreen",
         "settings" => "settings",
+        "lick_open" => "lick_open",
+        "lick_delete" => "lick_delete",
+        "lesson_open" => "lesson_open",
+        "lesson_restart" => "lesson_restart",
         _ => "",
     }
 }
@@ -2499,7 +2797,18 @@ pub fn digit(k: Key) -> Option<usize> {
 
 /// A sunken search field with a magnifier (and the keys that open it at the right); a 2 px accent ring while
 /// there's a search.
-pub fn draw_search(p: &Painter, boxr: Rect, query: &str, hint: &str, keys: &[&str]) {
+/// The Clear key at the search field's right end (shown while something is typed; owner request, 2026-10-29).
+pub fn search_clear_rect(ctx: &egui::Context, boxr: Rect) -> Rect {
+    let w = button_width(ctx, "Clear", "Esc", 12.0, true);
+    let h = px(30.0).min(boxr.height() - px(12.0));
+    Rect::from_min_size(
+        pos2(boxr.max.x - px(11.0) - w, centery(boxr) - h / 2.0),
+        vec2(w, h),
+    )
+}
+
+/// The search field; `clear` is the Clear key's (hovered, pressed) while something is typed.
+pub fn draw_search(p: &Painter, boxr: Rect, query: &str, hint: &str, keys: &[&str], clear: (bool, bool)) {
     let th = t();
     paint::inset(p, boxr, None, 6.0, Fill::Base);
     if !query.is_empty() {
@@ -2515,6 +2824,26 @@ pub fn draw_search(p: &Painter, boxr: Rect, query: &str, hint: &str, keys: &[&st
     );
     let x = boxr.min.x + px(48.0);
     let mut right = boxr.max.x - px(18.0);
+    if !query.is_empty() {
+        let cr = search_clear_rect(p.ctx(), boxr);
+        widgets::draw_button(
+            p,
+            cr,
+            "Clear",
+            "Esc",
+            ButtonStyle {
+                size: 12.0,
+                sunk: true,
+                icon: Some(Icon::X),
+                icon_size: 11.0,
+                r: Some(15.0),
+                ..Default::default()
+            },
+            clear.0,
+            clear.1,
+        );
+        right = cr.min.x - px(4.0);
+    }
     if !keys.is_empty() && query.is_empty() {
         for k in keys.iter().rev() {
             right = keycap(
@@ -2564,7 +2893,7 @@ pub fn draw_search(p: &Painter, boxr: Rect, query: &str, hint: &str, keys: &[&st
 
 /// The screen's colour from clear to solid, top to bottom, over `rect` (whole pixels): rows slide out under it. Each
 /// pixel row has its own alpha, `(k / (h - 1)) ** 1.6`, as the Python app's fade surface.
-fn draw_fade(p: &Painter, rect: Rect, color: Color32) {
+pub(crate) fn draw_fade(p: &Painter, rect: Rect, color: Color32) {
     let h = ipx(rect.height()).max(0.0) as usize;
     if h == 0 || rect.width() <= 0.0 {
         return;
@@ -2598,5 +2927,24 @@ fn draw_pick(p: &Painter, st: &AppState, rect: Rect) {
             let c = pos2(centerx(rect), centery(rect));
             icons::icon(p, Icon::Music, c, 20.0, t().accent_ink);
         }
+    }
+}
+
+/// The list's first row on screen once it holds `len` rows: a list that got shorter (a search, a rescan, a song taken
+/// out) while it was scrolled down would otherwise start past its end and draw no rows at all.
+fn first_row(top: usize, len: usize) -> usize {
+    top.min(len.saturating_sub(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_row;
+
+    #[test]
+    fn a_shorter_list_is_not_scrolled_past_its_end() {
+        assert_eq!(first_row(7, 5), 4);
+        assert_eq!(first_row(7, 0), 0);
+        assert_eq!(first_row(3, 100), 3);
+        assert_eq!(first_row(0, 0), 0);
     }
 }

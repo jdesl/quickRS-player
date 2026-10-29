@@ -1015,6 +1015,8 @@ pub fn build(pkg: &mut Package, source_name: &str, multi: bool, converter: &str)
                 "bonus": info.bonus,
                 "represent": is_one(props.get("represent")),
                 "chart": chart_paths(info).0.unwrap_or_default(),
+                // (an extension key: Rocksmith's highway density per level, for a highway that scrolls as the game's)
+                "visualDensity": at.get("DynamicVisualDensity").cloned().unwrap_or(Value::Array(Vec::new())),
             }),
         );
         entries.push(Value::Object(entry));

@@ -14,7 +14,7 @@ use crate::material::Mat;
 use crate::paint::{self, Fill, PxRect, ipx, pt, pxr, sc};
 use crate::raster::{mix, pg};
 use crate::text::{self, Style};
-use crate::theme::{IVORY_INK, t};
+use crate::theme::{self, IVORY_INK, t};
 
 /// Hover and click on a rect. Never keyboard-focusable: Tab, Enter and Space are the app's own keys.
 pub fn interact(ui: &Ui, rect: Rect, id: impl egui::AsId, sense: Sense) -> Response {
@@ -67,6 +67,8 @@ pub struct ButtonStyle {
     pub mat: Option<Mat>,
     pub seed: u32,
     pub icon_size: f32,
+    /// A grey well instead of a raised key: it sinks further while pressed (like the tab toolbar's keys).
+    pub sunk: bool,
 }
 
 impl Default for ButtonStyle {
@@ -86,6 +88,7 @@ impl Default for ButtonStyle {
             mat: None,
             seed: 0,
             icon_size: 16.0,
+            sunk: false,
         }
     }
 }
@@ -197,6 +200,23 @@ pub fn draw_button(
         paint::inset_px(p, r, Some(rad), 2.0, Fill::Base);
         col = th.caption;
         weight = 700;
+    } else if st.sunk {
+        paint::inset_px(p, r, Some(rad), if down { 4.5 } else { 3.0 }, Fill::Base);
+        col = if st.accent || st.primary {
+            th.accent_ink
+        } else if hot {
+            th.text
+        } else {
+            th.text_2
+        };
+        weight = if st.primary || st.active || st.accent {
+            800
+        } else {
+            700
+        };
+        if down {
+            lift = -one;
+        }
     } else {
         lift = if hot && !down { one } else { 0 };
         let face = r.moved(0, -lift + if down { one } else { 0 });
@@ -326,6 +346,8 @@ pub enum RoundKind {
     Gem(Gem),
     /// A material, with the icon in `ink` (else the material's own).
     Mat(Mat, u32, Option<Color32>),
+    /// A white Go stone (the transport's back and forward keys; ivory in the classic look).
+    Stone,
 }
 
 /// A round key holding an icon: ivory, a cut gem (the play key, a tile's close key) or a material.
@@ -406,6 +428,22 @@ pub fn draw_round_button(
         }
         RoundKind::Ivory => {
             keys::key_face_px(p, face, None, false, down || active);
+            icons::icon(p, icon, ptp(cx, cy, ppp), icon_size, IVORY_INK);
+        }
+        RoundKind::Stone if theme::classic() => {
+            keys::key_face_px(p, face, None, false, down || active);
+            icons::icon(p, icon, ptp(cx, cy, ppp), icon_size, IVORY_INK);
+        }
+        RoundKind::Stone => {
+            keys::stone_px(p, face, down || active);
+            // inlaid: a light under the ink's lower edge
+            icons::icon(
+                p,
+                icon,
+                ptp(cx, cy + one, ppp),
+                icon_size,
+                Color32::from_white_alpha(150),
+            );
             icons::icon(p, icon, ptp(cx, cy, ppp), icon_size, IVORY_INK);
         }
     }

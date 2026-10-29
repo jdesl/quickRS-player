@@ -191,6 +191,9 @@ pub struct Chord {
     pub frets: Vec<i32>,
     /// 1-4 = index..pinky, 0 = thumb, -1 = none.
     pub fingers: Vec<i32>,
+    /// A repeat of the chord before it (SNG high-density bit, feedpak `hd`, XML `highDensity`): Rocksmith draws it
+    /// as an empty frame, the shape not shown again.
+    pub high_density: bool,
 }
 
 impl Chord {
@@ -208,6 +211,9 @@ impl Chord {
         }
         if self.sustain > 0.0 {
             d.insert("sustain".into(), r3(self.sustain));
+        }
+        if self.high_density {
+            d.insert("high_density".into(), json!(true));
         }
         Value::Object(d)
     }
@@ -304,9 +310,59 @@ pub struct Arrangement {
     pub handshapes: Vec<HandShape>,
     pub anchors: Vec<Anchor>,
     pub tones: Vec<ToneChange>,
+    /// The tone the part starts on (Rocksmith's Tone_Base, feedpak `tones.base`).
+    pub base_tone: String,
+    /// Each tone's rig (amp, cab, pedals, racks), for the pedalboard.
+    pub rig: Vec<crate::rig::RigTone>,
+    /// Rocksmith's DynamicVisualDensity, one per difficulty level, easiest first: how far ahead the highway shows
+    /// notes (lower = notes come faster). Empty when the song doesn't say (see `visual_density_at`).
+    pub visual_density: Vec<f32>,
+    /// Where each phrase iteration starts (SNG / XML phraseIterations, feedpak `phrases[].start_time`), sorted:
+    /// Rocksmith's camera frames the hand positions from the current phrase's start.
+    pub phrases: Vec<f64>,
 }
 
+/// Anchors in time order, each ending where the next starts at the latest. A level's anchor runs to that level's next
+/// anchor, so once phrases from different levels are stitched together (a mastery below 1, or a song whose phrases
+/// top out at different levels) an end can outlive the anchors after it (Play With Me: fret 14 from 16.8 s "ending"
+/// at 131.8 s).
+pub(crate) fn anchors_end_at_next(anchors: &mut [Anchor]) {
+    anchors.sort_by(|a, b| a.start.total_cmp(&b.start));
+    for k in 0..anchors.len().saturating_sub(1) {
+        let next = anchors[k + 1].start;
+        if anchors[k].end > next {
+            anchors[k].end = next;
+        }
+    }
+}
+
+/// Times sorted and without repeats (to the millisecond), for phrase starts.
+pub(crate) fn sorted_times(times: impl IntoIterator<Item = f64>) -> Vec<f64> {
+    let mut v: Vec<f64> = times.into_iter().filter(|t| t.is_finite()).collect();
+    v.sort_by(f64::total_cmp);
+    v.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+    v
+}
+
+/// Rocksmith's highway density at the easiest level, and a song's own full-difficulty value when it gives none.
+pub const VISUAL_DENSITY_EASIEST: f32 = 5.0;
+pub const VISUAL_DENSITY_DEFAULT: f32 = 1.3;
+
 impl Arrangement {
+    /// The highway's density at a difficulty (0..1 of the ladder; 1 = the full chart): the song's own value for that
+    /// level, else Rocksmith's ladder, 5.0 at the easiest falling geometrically to 1.3 at full difficulty
+    /// (as the Rocksmith toolkit fills it: `5 * (end / 5) ^ (level / max)`).
+    pub fn visual_density_at(&self, mastery: f64) -> f32 {
+        let m = mastery.clamp(0.0, 1.0);
+        if !self.visual_density.is_empty() {
+            let i = ((self.visual_density.len() - 1) as f64 * m).round() as usize;
+            return self.visual_density[i.min(self.visual_density.len() - 1)];
+        }
+        let (a, b) = (VISUAL_DENSITY_EASIEST as f64, VISUAL_DENSITY_DEFAULT as f64);
+        let v = a * (b / a).powf(m);
+        ((v * 10.0).round() / 10.0) as f32
+    }
+
     pub fn new(name: &str) -> Arrangement {
         Arrangement {
             name: name.into(),
@@ -406,6 +462,21 @@ pub fn tuning_name(tuning: &[i32], is_bass: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stitched_anchors_end_at_the_next_start() {
+        let a = |start: f64, end: f64, fret: i32| Anchor {
+            start,
+            end,
+            fret,
+            width: 4,
+        };
+        // (a phrase's level-2 anchor runs on to its level's next anchor, past the next phrase's own)
+        let mut v = vec![a(30.0, 40.0, 5), a(16.8, 131.8, 14), a(20.0, 30.0, 7)];
+        anchors_end_at_next(&mut v);
+        let got: Vec<(f64, f64)> = v.iter().map(|x| (x.start, x.end)).collect();
+        assert_eq!(got, vec![(16.8, 20.0), (20.0, 30.0), (30.0, 40.0)]);
+    }
 
     #[test]
     fn tuning_names() {

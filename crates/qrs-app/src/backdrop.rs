@@ -26,6 +26,8 @@ pub struct BackdropTag;
 #[derive(Default)]
 pub struct Backdrop {
     tex: Option<TextureHandle>,
+    /// The page blurred much more (a sixteenth of the size, softened twice), seen through glass panels.
+    frost: Option<TextureHandle>,
     key: Option<Key>,
     /// The capture asked for, and when (one that never comes back is given up after a second).
     pending: Option<(Key, Instant)>,
@@ -67,9 +69,16 @@ impl Backdrop {
         if let Some(img) = got {
             if self.pending.is_some_and(|(k, _)| k == now) {
                 let small = soften(&img);
+                let frost = soften(&small);
                 match &mut self.tex {
                     Some(t) => t.set(small, TextureOptions::LINEAR),
                     None => self.tex = Some(ctx.load_texture("backdrop", small, TextureOptions::LINEAR)),
+                }
+                match &mut self.frost {
+                    Some(t) => t.set(frost, TextureOptions::LINEAR),
+                    None => {
+                        self.frost = Some(ctx.load_texture("backdrop-frost", frost, TextureOptions::LINEAR))
+                    }
                 }
                 self.key = Some(now);
             }
@@ -94,10 +103,18 @@ impl Backdrop {
     }
 
     pub fn draw(&self, p: &Painter, rect: Rect) {
+        self.draw_page(p, rect);
+        paint::dim(p, rect, None);
+    }
+
+    /// The page alone, not dimmed (a dialog that dims it itself goes over it); glass panels this pass see it.
+    pub fn draw_page(&self, p: &Painter, rect: Rect) {
         if let Some(t) = &self.tex {
             paint::image(p, t.id(), rect, Color32::WHITE);
         }
-        paint::dim(p, rect, None);
+        if let Some(f) = &self.frost {
+            paint::set_frost(p.ctx(), f.id(), rect);
+        }
     }
 
     pub fn clear(&mut self) {

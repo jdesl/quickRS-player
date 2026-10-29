@@ -144,16 +144,7 @@ pub fn song_audio(pkg: &mut Package, preview: bool) -> Result<Option<EncodedAudi
                     Err(Error::Feedpak("this feedpak has no audio stem".into()))
                 };
             };
-            let data = fp.read(&rel)?;
-            let codec = match Codec::sniff(&data) {
-                Codec::Unknown => Codec::from_name(&rel),
-                c => c,
-            };
-            Ok(Some(EncodedAudio {
-                data,
-                codec,
-                origin: rel,
-            }))
+            Ok(Some(feedpak_audio(fp, &rel)?))
         }
         Format::Psarc => {
             let loc = wem_location(pkg, preview)?;
@@ -170,6 +161,48 @@ pub fn song_audio(pkg: &mut Package, preview: bool) -> Result<Option<EncodedAudi
             }))
         }
     }
+}
+
+fn feedpak_audio(fp: &mut crate::feedpak::FeedpakPackage, rel: &str) -> Result<EncodedAudio> {
+    let data = fp.read(rel)?;
+    let codec = match Codec::sniff(&data) {
+        Codec::Unknown => Codec::from_name(rel),
+        c => c,
+    };
+    Ok(EncodedAudio {
+        data,
+        codec,
+        origin: rel.to_string(),
+    })
+}
+
+/// One stem of a stemmed feedpak, encoded.
+#[derive(Clone, Debug)]
+pub struct StemAudio {
+    pub info: crate::feedpak::StemInfo,
+    pub audio: EncodedAudio,
+}
+
+/// A stemmed feedpak's stems for the mixer, and its `full` mixdown if it kept one (spec §5.3: never summed with
+/// the stems; played as is while every stem plays as the pack set it). None for a psarc or a one-stem pack.
+pub fn song_stems(pkg: &mut Package) -> Result<Option<(Vec<StemAudio>, Option<EncodedAudio>)>> {
+    let Some(fp) = pkg.feedpak() else {
+        return Ok(None);
+    };
+    let infos = fp.mix_stems();
+    if infos.is_empty() {
+        return Ok(None);
+    }
+    let full = match fp.full_stem() {
+        Some(rel) => Some(feedpak_audio(fp, &rel)?),
+        None => None,
+    };
+    let mut stems = Vec::with_capacity(infos.len());
+    for info in infos {
+        let audio = feedpak_audio(fp, &info.file)?;
+        stems.push(StemAudio { info, audio });
+    }
+    Ok(Some((stems, full)))
 }
 
 /// Where a song's .wem is: in the package itself (archive None) or in another of the game's archives.

@@ -88,8 +88,12 @@ pub struct ArrangementInfo {
     pub title_sort: String,
     /// Rocksmith tone names by slot ("Tone_A"..), from the manifest.
     pub tone_names: Vec<(String, String)>,
+    /// Each tone's rig, from the manifest's `Tones`.
+    pub rig: Vec<crate::rig::RigTone>,
     /// feedpak converted from a psarc: the source chart's path in that psarc (`rocksmith.chart`).
     pub source_chart: String,
+    /// Rocksmith's DynamicVisualDensity per level (manifest), easiest first; empty if not given.
+    pub visual_density: Vec<f32>,
 }
 
 impl ArrangementInfo {
@@ -347,7 +351,9 @@ impl Package {
                     artist_sort: s(attrs, "ArtistNameSort"),
                     title_sort: s(attrs, "SongNameSort"),
                     tone_names,
+                    rig: crate::rig::parse_tones(attrs.get("Tones")),
                     source_chart: String::new(),
+                    visual_density: crate::feedpak::densities(attrs.get("DynamicVisualDensity")),
                 });
             }
         }
@@ -528,6 +534,17 @@ impl Package {
                     if let Some((_, n)) = info.tone_names.iter().find(|(slot, _)| *slot == t.name) {
                         t.name = n.clone();
                     }
+                }
+                if arr.base_tone.is_empty()
+                    && let Some((_, n)) = info.tone_names.iter().find(|(slot, _)| slot == "Tone_Base")
+                {
+                    arr.base_tone = n.clone();
+                }
+                if arr.rig.is_empty() {
+                    arr.rig = info.rig.clone();
+                }
+                if arr.visual_density.is_empty() {
+                    arr.visual_density = info.visual_density.clone();
                 }
                 Ok(arr)
             }

@@ -15,6 +15,7 @@ pub mod model;
 pub mod package;
 pub mod psarc;
 pub mod rhythm;
+pub mod rig;
 pub mod sng;
 pub mod song_audio;
 pub mod songinfo;
@@ -25,6 +26,6 @@ pub mod xml;
 pub mod testutil;
 
 pub use error::{Error, Result};
-pub use keys::{Keys, load_keys};
+pub use keys::{Keys, keys_from_text, keys_to_json, load_keys};
 pub use model::{Arrangement, Chord, Note, Techs};
 pub use package::{ArrangementInfo, Format, Package, load_arrangement};

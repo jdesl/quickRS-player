@@ -1,388 +1,395 @@
-<div align="center">
+quickRS
+-------
 
-# quickRS
+[**⬇ Download for Windows**](https://github.com/arpan2711/quickRS-player/releases/latest) · [**⬇ Download for Mac** (beta)](https://github.com/arpan2711/quickRS-player/releases/latest) · [Get your songs in](docs/GETTING-SONGS.md) · [Report a bug](https://github.com/arpan2711/quickRS-player/issues) · [**☕ Support it**](https://ko-fi.com/arpanmitra)
 
-**A free practice player for your own Rocksmith 2014 songs.**
-Plug in your guitar, pick a song, and play along to tab that scrolls with the music.
+quickRS is a practice player for the Rocksmith 2014 songs you already own. It
+reads your `.psarc` files (or feedpaks, an open one-file-per-song format),
+shows the chart as scrolling tab or as a 3D note highway, and listens to your
+guitar through a Real Tone Cable, an audio interface or a microphone. You can
+loop a passage, slow it down without changing the pitch, shift the pitch,
+make the song wait for each note, record a take and see what you got wrong,
+play through a pedalboard or an amp room, and record what you hear.
+It doesn't change your Rocksmith install.
 
-[**⬇ Download for Windows**](https://github.com/arpan2711/quickRS-player/releases/latest) · [Get your songs in](#get-your-songs-in) · [Converter](#the-converter-psarc--feedpak) · [Build it yourself](#build-it-yourself) · [☕ Support it](https://ko-fi.com/arpanmitra)
+quickRS is free and MIT licensed. It is a hobby project made by one person
+with a lot of help from an AI coding assistant, and it has had few testers
+beyond me and the people who tried 0.1.0. Bug reports are very welcome:
+Settings > *Updates* > *Report a bug* in the app, or
+[GitHub Issues](https://github.com/arpan2711/quickRS-player/issues).
 
-![quickRS playing Pride and Joy](screenshots/player-light.png)
+![The player](screenshots/player.png)
 
-</div>
 
-## Get your songs in
+### Takes: feedback on your playing, straight away
 
-**You don't need to convert anything.** quickRS plays your Rocksmith songs as they are, straight from Rocksmith's
-own folder. It only needs Rocksmith's two keys, in a file called `keys.json` next to `quickrs.exe`. You make that
-file once, in step 2. (The converter further down is optional.)
+Loop a stretch, press `Ctrl+R`, play it once, and a second later quickRS shows
+how it went: each note and chord right, wrong (and what you played instead),
+missed or extra, your timing (rushing or dragging, and by how many
+milliseconds), bar by bar, the problems in plain words, and your own tab drawn
+over the song's. `B` plays the take back over the song.
 
-**You need:** Windows 10 or 11 (64-bit), your guitar (a Real Tone Cable, an audio interface, or a mic), and your own
-Rocksmith 2014 songs. **No songs are included.**
+It's signal processing checked against the chart, done on your computer: no
+AI model, no upload, and the same take always gets the same answer. See
+[Takes](docs/PLAYING.md#takes).
 
-Setting up takes four steps: download quickRS, add the keys, start quickRS, check your songs open.
+![A take's result, labelled](screenshots/take-labelled.png)
 
-Words you'll see below:
 
-- **.psarc file:** the kind of file Rocksmith keeps its songs in. Most hold one song. Some hold many: the game's own
-  `songs.psarc` has its 70 songs, and song packs hold several.
-- **dlc folder:** the folder where Rocksmith keeps your .psarc files. It's called `dlc`, and it's inside Rocksmith's
-  game folder, `Rocksmith2014`. With Steam it's usually
-  `C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc`.
-- **keys:** two codes that unlock .psarc files. Step 2 explains them.
-- **F5, F2:** keys on the top row of your keyboard. On some laptops you hold *Fn* while you press them.
-- **File name endings** (`.exe`, `.json`, `.txt`): Windows often hides them. So `quickrs.exe` may show as just
-  `quickrs`, and `keys.example.json` as `keys.example`. That's normal.
+### Download
 
-### Step 1: Download quickRS
+* **Windows 10 or 11 (64-bit):** `quickRS-0.3.0-windows-x64.zip` from the
+  [latest release](https://github.com/arpan2711/quickRS-player/releases/latest).
+  There is no installer: unzip it and run `quickrs.exe`.
+* **macOS 11 or later (beta):** `quickRS-0.3.0-macos-universal.dmg` (or the
+  `.zip`) from the same page. One app for Apple silicon and Intel Macs. It is
+  tested on one Mac so far and not notarised by Apple, so the first start
+  takes an extra step. See [docs/INSTALL.md](docs/INSTALL.md#macos).
+  On a Mac, the keys written Ctrl in these docs are Cmd (a take is `Cmd+R`).
 
-1. Open [Releases](https://github.com/arpan2711/quickRS-player/releases/latest).
-2. Under *Assets*, click `quickRS-<version>-windows-x64.zip` (for example `quickRS-0.1.0-windows-x64.zip`). Don't
-   click *Source code*.
-3. Open your *Downloads* folder.
-4. Right-click the zip and choose *Extract All…*, then click *Extract*.
-5. In the folder that opens, double-click the folder called `quickRS-<version>` (for example `quickRS-0.1.0`).
+No songs and no Rocksmith keys are included.
 
-You're now in **the quickRS folder**: the folder with `quickrs.exe` in it. There's no installer. quickRS runs from
-this folder, and you can move the whole folder anywhere you like.
+Have 0.1.0? It can't update itself, so download the 0.3.0 zip by hand this
+once and unzip it over your old folder or beside it; your settings and scores
+carry over. From 0.3.0 on, quickRS updates itself. See
+[UPDATING](docs/UPDATING.md#from-010).
 
-The quickRS folder has these files. To play, you only need `quickrs.exe` and the `keys.json` you make in step 2.
 
-| File | What it's for |
-|---|---|
-| `quickrs.exe` | the player: this is quickRS |
-| `keys.example.json` | the file you turn into `keys.json` in step 2 |
-| `make_shortcut.ps1` | puts a quickRS shortcut on your Desktop |
-| `quickRS Converter.exe` | converts your .psarc songs to feedpaks, an open format (optional, see [the converter](#the-converter-psarc--feedpak)) |
-| `Convert songs.bat` | the same conversion, in a console window (optional) |
-| `quickrs-cli.exe` | command-line tools (the converter, song info, tabs) |
-| `README.txt` | these instructions, offline |
-| `licences` | the licences |
+### Documentation
 
-### Step 2: Add Rocksmith's two keys
+* [Installing](docs/INSTALL.md), including the Windows SmartScreen and macOS
+  Gatekeeper warnings, and where your data is kept.
+* [Getting your songs in](docs/GETTING-SONGS.md): song folders, feedpaks,
+  psarcs and the keys, the converter.
+* [Audio setup](docs/AUDIO-SETUP.md): the guided guitar setup, Real Tone
+  Cable, interfaces, ASIO and WASAPI, calibrating your input, the pedalboard
+  and the amp room.
+* [Playing](docs/PLAYING.md): tab, highway, loops, slow-down, note by note, ear
+  mode, takes, recording, scoring, pitch and stems.
+* [Updating](docs/UPDATING.md), including coming from 0.1.0.
+* [Troubleshooting](docs/TROUBLESHOOTING.md), and how to report a bug.
 
-Rocksmith's .psarc files are locked (encrypted). quickRS needs two keys to open them. About the keys:
 
-- Their names are the **PSARC key** and the **SNG key for PC**.
-- Each one is a code 64 characters long, made only of the digits `0`-`9` and the letters `A`-`F`.
-- They're the same in every copy of Rocksmith. They are **not** a licence key, and they have nothing to do with your
-  Steam account.
-- quickRS can't include them. They're published in open-source Rocksmith modding tools.
+### Hidden gems
 
-Find both keys first. Then make `keys.json` in the quickRS folder, next to `quickrs.exe`:
+Easy to miss, and some of the best parts. `F1` in a song lists every key.
 
-1. In the quickRS folder, right-click `keys.example.json` and choose *Open with* → *Notepad*.
-2. Look at what's inside. It's two lines between `{` and `}`, like this (your example text is different):
+* **Ctrl+drag over the tab** (or Ctrl+click a bar) to select a passage. A
+  small bar appears under it: **Play** it on the synth guitar or from the
+  song itself (the shell key switches), **Loop** it, **Slow** it down, or
+  **Save lick** to keep it on the Saved licks page.
+* **Take review** (`Ctrl+R`): loop a few bars, play them once, and a second
+  later you see what was right, wrong (and what you played instead), missed
+  or rushed, bar by bar, with your own tab drawn over the song's. `B` plays
+  your take back over the song. All on your computer, no AI.
+* **The RS Highway** (`V`, or the green *RS Highway* key on the tab's
+  toolbar): the 3D Rocksmith-style note highway with a camera that follows
+  the frets. `I` turns it upside down.
+* **Note by note** (`W`): the song stops at each note and waits until you
+  play it.
+* **Ear mode** (`H`): the notes are hidden until you've played them, for
+  learning by ear.
+* **Synth or real guitar** (`G`): hear exactly what the tab says, played by
+  the synth in place of the recording's guitar.
+* **The amp room** (`A` on Home, or the AMP ROOM meter at the foot of the
+  sidebar): play through a rig with no song, save sounds, switch them with
+  `1`-`4`. In a song, `Shift+T` loads those sounds on the Pedalboard tile.
+* **Every song's own tone**: the Pedalboard tile builds the song's
+  Rocksmith tone as amps and pedals for you to play through and tweak.
+* **The lamps above the play key are buttons**: click *loop*, *ear*, *take*,
+  *synth / real* or *rec* instead of remembering the keys.
+* **The guitar pick at the top of the sidebar** switches the look:
+  Midnight, Graphite, Daylight.
+* **Drop a folder on the window** to add it to your library.
+* **Sounds late?** `,` and `.` nudge the sync, `Ctrl+,` and `Ctrl+.` your
+  guitar's timing.
 
-   ```
-   {
-     "psarc_key": "<example text>",
-     "sng_key": "<example text>"
-   }
-   ```
 
-3. Copy the **PSARC key** from where you found it: select it and press *Ctrl+C*.
-4. In Notepad, on the `"psarc_key"` line, select the example text, from `<` to `>`, both included. Don't select
-   the quotes around it.
-5. Press *Ctrl+V*. The key takes the place of the example text.
-6. Copy the **SNG key for PC** the same way: select it and press *Ctrl+C*.
-7. In Notepad, on the `"sng_key"` line, select the example text, from `<` to `>`.
-8. Press *Ctrl+V*.
-9. Check both lines. Each key sits between its two quotes, on one line. There's no `<` or `>` left. The quotes,
-   the colons, and the comma at the end of the first line are still there. (A key written as `0x1A, 0x2B, …`
-   works too.)
-10. Click *File* → *Save as*.
-11. Check that the Save window is in the quickRS folder: its name (for example `quickRS-0.1.0`) shows at the top.
-    If it isn't, go to the quickRS folder.
-12. In the *File name* box, delete what's there and type `"keys.json"` **with the quotes**. The quotes stop Windows
-    from adding `.txt` to the name.
-13. Click *Save*.
-14. Close Notepad.
+### What's new since 0.1.0
 
-`keys.json` is now in the quickRS folder, next to `quickrs.exe`. Leave `keys.example.json` where it is.
+0.1.0 (14 October 2026) was the first release; 0.3.0 is the next one. In
+short:
 
-### Step 3: Start quickRS
+Setting up
 
-> [!IMPORTANT]
-> **Already opened quickRS before adding the keys? Close it, open it again, then press F5.**
->
-> quickRS reads `keys.json` only when it starts. Songs it saw without the keys stay marked *needs keys*, even after
-> you open it again, until you press **F5**. F5 makes quickRS read your song folders again. F5 in a quickRS window
-> that was open while you made `keys.json` doesn't help: close it and open it first.
->
-> Never opened quickRS before making `keys.json`? Then you don't need F5.
+* A first-time setup opens over the app on a new install: *Look*, *Your
+  guitar*, *Low latency*, *Note widget*, *Keys and folders*, *Done*. *Run the
+  first-time setup again* at the top of Settings (`F2`) opens it any time.
+* *Your guitar* is a guided setup: the input and its channel, the output, a
+  level check that says what to turn, what's plugged in (guitar, amp
+  modeller or microphone), calibration the Rocksmith way (knobs up, hands
+  off, then strum as hard as you can), and a check of the open strings.
+* Keys pasted in Settings > *Directories*, `keys.json.txt` read too, and songs
+  read as soon as the keys arrive: no restart, no `F5`.
+* Song folders listed with *Add folder...* and *Remove*; a switch to read
+  only your feedpaks; each song marked `feedpak`, `psarc` or both.
+* quickRS updates itself (it asks first), and Settings > *Updates* > *Report
+  a bug* opens a GitHub issue with your version and system filled in.
+* Settings sections renamed: *Audio input / output*, *Raw guitar tone*,
+  *Directories*.
+* A Mac version (beta).
 
-1. If quickRS is open, close it.
-2. In the quickRS folder, double-click `quickrs.exe`.
-3. Windows may warn about an unknown app, because the programs aren't signed. If it does, click *More info*, then
-   *Run anyway*.
-4. Wait for your song list. quickRS looks for your Rocksmith songs by itself, and lists the game's own songs and
-   your song packs too.
-5. Did you open quickRS before you made `keys.json`? Then press **F5** now. (Or click *Rescan* on the bar at the
-   bottom of the song list.) quickRS reads all your songs again. With a big library this can take up to a minute.
+Practising
 
-**If you don't see your songs:**
-1. In File Explorer, open Rocksmith's game folder, `Rocksmith2014` (with Steam it's usually
-   `C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014`). You'll see the `dlc` folder in it.
-2. Drag the `dlc` folder onto the quickRS window. quickRS remembers it.
+* Note by note (`W`): the song waits at each note until you play it.
+* Ear mode (`H`): the notes stay hidden until you play them.
+* Takes (`Ctrl+R`): the loop recorded and checked bar by bar (above).
+* Recording what you hear (`R`): the song and your guitar, to a WAV named
+  after the song, in your recordings folder as soon as you stop.
+* Synth or real guitar (`G`): the synth plays the part in place of the
+  song's guitar.
+* Chords score like Rocksmith's (half the notes are enough), and strums are
+  found through distorted or clipping inputs.
+* Pitch shift (`Shift+↑` / `Shift+↓`, or *TRANSPOSE* in the header), every
+  stem of a stemmed feedpak with its own level, saved licks (`Ctrl+S`).
+* Every key on one sheet (`F1` or `?`), and what's switched on shown in red
+  or amber.
 
-*Settings* (F2) → *Library* lists the folders quickRS reads.
+Sound
 
-**For a Desktop shortcut:** in the quickRS folder, right-click `make_shortcut.ps1` and choose *Run with PowerShell*.
+* The pedalboard: 54 models drawn after the units they model, a detailed
+  editor, and Rocksmith songs' own rigs.
+* The amp room: play through your rig with no song.
 
-### Step 4: Check your songs open
+Views
 
-1. Look at the songs on the first screen of your list.
-2. Look under each song's name. **needs keys** in red means that song can't be opened yet: the keys aren't working.
-   Those songs also show **?** instead of a tuning, and **0:00** as their length.
-   - If you see *needs keys*, go to [If something's not right](#if-somethings-not-right) below.
-   - If you don't, you're done. Pick a song and play.
+* The 3D note highway (`V`).
+* Tab shape: bar width, string spacing, compact rows, full-screen tab.
+* Tiles fold; a new look in three themes.
 
-![The player in the dark theme](screenshots/player-dark.png)
+The full list is in the
+[0.3.0 release notes](https://github.com/arpan2711/quickRS-player/releases/tag/v0.3.0).
 
-## The converter: psarc → feedpak
 
-**This is optional.** You don't need it to play your songs.
+### Features
 
-**Feedpaks** are an open format for the same songs: one plain, unencrypted file per song, with the song's parts,
-audio and lyrics. Once converted, they play **without keys**. Convert if you want to play without the keys, or if
-you want your songs in the open format. Your .psarc files are only read, never changed, so Rocksmith keeps working
-as before.
+The numbers on each picture are explained under it.
 
-The converter needs the keys too, to read your .psarc files, so do step 2 first.
+#### Tab
 
-<img src="screenshots/converter.png" width="560" alt="quickRS Converter">
+The whole part as pages of tab with rhythm notation, the current bar lit and
+the next notes ringed. Lead, Rhythm and Bass are a key apart.
 
-**How to use it:**
+![The player, labelled](screenshots/player-labelled.png)
 
-1. In the quickRS folder, double-click **`quickRS Converter.exe`**.
-2. Look at the top line. It should say **Keys found: ready to convert**. If it says *keys.json is missing*, go to
-   [Check the keys](#check-the-keys).
-3. Look at box 1, **"Your Rocksmith songs"**. It's filled in by itself only if Rocksmith is in Steam's usual place,
-   `C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc`. If it's empty, press *Browse…* next to it
-   and pick your `dlc` folder.
-4. Look at box 2, **"Where the feedpaks go"**. Once box 1 is filled, it shows a folder called `feedpak`, next to
-   `dlc`. **Leave it as it is.** quickRS then finds your feedpaks by itself. (If you pick another folder, drag that
-   folder onto the quickRS window once after converting.)
-5. Press **Convert**. Each song shows in the list as it's done.
-6. Wait until the line next to *Convert* starts with *Done*.
-7. To see the feedpaks, press *Open the feedpak folder*.
+#### Loops and slowing down
 
-It converts every song in the folder, including those in subfolders. Run it again after buying or adding songs:
-only the new ones are converted, and the rest are counted as *already there*.
+`[` and `]` set a loop on the beat, `L` loops the section, and the speed goes
+from 25% to 150% without changing the pitch. The *Controls* key opens all of
+it.
 
-If you have a song as both a .psarc and a feedpak, quickRS lists it once. To choose which copy plays, open
-*Settings* (F2) → *Library* → *Songs in both formats*, and pick *The psarc* or *The feedpak*.
+![The practice controls, labelled](screenshots/controls-labelled.png)
 
-### Converting without the window: Convert songs.bat
+![A loop, labelled](screenshots/loop-labelled.png)
 
-`Convert songs.bat` does the same conversion in a console window (a black window with text).
+#### Highway
 
-1. Make sure `keys.json` is in the quickRS folder (step 2). Without it, `Convert songs.bat` says *keys.json is
-   missing* and stops.
-2. In the quickRS folder, double-click `Convert songs.bat`.
-3. It asks *Which folder has your .psarc songs?*
-   - If it says *Press Enter for Rocksmith's own: …*, press Enter.
-   - If not, type or paste the full path of your `dlc` folder, then press Enter.
-4. It asks *Where should the feedpaks go?* and suggests a folder. Press Enter to accept it.
-5. Wait until it says *Feedpaks are in: …*.
-6. Press any key to close the window.
+A Rocksmith-style 3D note highway, in place of the tab (`V`).
 
-**From a command prompt**, in the quickRS folder, the same conversion is:
+![The highway, labelled](screenshots/highway-labelled.png)
 
-```bat
-quickrs-cli.exe convert-folder "C:\...\Rocksmith2014\dlc" "C:\...\Rocksmith2014\feedpak"
+#### Note by note
+
+The song waits at each note until you play it.
+
+![Note by note, labelled](screenshots/note-by-note-labelled.png)
+
+#### Takes and recording
+
+`Ctrl+R` records the loop and checks it against the chart, bar by bar (the
+picture at the top). `R` records what you hear, song and guitar, to a WAV
+file named after the song; it appears in your recordings folder when you
+stop.
+
+#### Pitch and stems
+
+The song up or down in semitones, and, for a feedpak split into stems, each
+stem's level. This picture is from a small example pack with guitar, drums,
+vocals and click stems.
+
+<img src="screenshots/stems-labelled.png" width="430" alt="The PITCH & STEMS group, labelled">
+
+#### Pedalboard
+
+Pedals, amp, cab and effects for a dry guitar input, each drawn after the
+kind of unit it models.
+
+![The pedalboard, labelled](screenshots/pedalboard-labelled.png)
+
+#### Amp room
+
+Your rig on a stage, with no song: scenes, saved sounds, and every song's own
+tone to try.
+
+#### Library
+
+![The library, labelled](screenshots/library-labelled.png)
+
+#### Setting up
+
+A first-time setup on the first start (the look, your guitar, low latency,
+the note widget, keys and folders), and the song folders and keys in
+Settings > Directories.
+
+![The first-time setup](screenshots/setup.png)
+
+![Settings > Directories, labelled](screenshots/settings-library-labelled.png)
+
+#### Also
+
+Scoring with your best three runs per part, a tuner set to the song's tuning,
+lyrics, a difficulty slider with level-up after a clean loop, three themes
+(Midnight, Graphite, Daylight), guitar tones (As is, Clean, Crunch, Lead,
+Bass, Acoustic, Pedalboard, and your own), and a converter from psarc to
+feedpak.
+
+
+### Quick start
+
+1. Download and unzip quickRS. ([INSTALL](docs/INSTALL.md))
+2. Plug in your guitar. A Real Tone Cable is picked by itself.
+   ([AUDIO-SETUP](docs/AUDIO-SETUP.md))
+3. Start `quickrs.exe`. It finds Rocksmith's `dlc` folder in your Steam
+   libraries, and the first-time setup opens: pick a look, set up your guitar
+   (a couple of minutes), and add keys and folders. Every page can be
+   skipped. ([INSTALL](docs/INSTALL.md#the-first-start))
+4. If songs say *needs keys*, paste Rocksmith's two keys into the setup's
+   *Keys and folders* page, or Settings (`F2`) > *Directories*, and press
+   *Save keys*. Feedpaks need no keys.
+   ([GETTING-SONGS](docs/GETTING-SONGS.md))
+5. Pick a song, press `Space`, and play. ([PLAYING](docs/PLAYING.md))
+
+
+### Keyboard shortcuts
+
+Every button shows its key on it, and `F1` (or `?`) in the player shows them
+all on one sheet. On a Mac, Ctrl in these keys is Cmd. The full list:
+
+In the player:
+
+| Key | What it does |
+| --- | --- |
+| `Space` | Play / pause |
+| `=` / `Ctrl+=` | Faster / slower (25% to 150%, pitch kept) |
+| `Shift+↑` / `Shift+↓` | Pitch up / down a semitone (-12 to +12; also *TRANSPOSE* in the header) |
+| `←` `→` | Seek: 1 s, growing to 20 s while held (`Shift`: always 1 s) |
+| `-` | Back 5 s |
+| `Home` | Back to the start |
+| `PgUp` / `PgDn` | Previous / next section |
+| `[` `]` | Loop start / end (snaps to the beat) |
+| `L` | Loop the current section |
+| `\` or `Ctrl+[` | Clear the loop |
+| `↑` `↓` | Zoom the tab |
+| `Alt+←` `Alt+→` | Bars narrower / wider |
+| `Alt+↑` `Alt+↓` | Strings further apart / closer (`Alt+0` resets both) |
+| `C` | Compact rows |
+| `F` | Full-screen tab (`F` or `Esc` leaves) |
+| `V` | RS Highway / tab |
+| `I` | On the highway: invert the strings |
+| `A` / `Shift+A` | Next / previous part |
+| `1`-`6` | Part 1 to 6 |
+| `Ctrl+↑` / `Ctrl+↓` | Harder / easier |
+| `Y` | Lyrics tile on / off |
+| `N` | Rhythm notation on / off |
+| `H` | Ear mode |
+| `W` | Note by note |
+| `Enter` | Note by note, while it waits: skip the note |
+| `Ctrl+R` | Record a take of the loop and check it (`Ctrl+R` again stops) |
+| `B` | Listen back to the last take |
+| `R` | Record what you hear; again: pause / resume |
+| `Shift+R` | Stop the recording and save it |
+| `G` | Synth / real guitar |
+| `9` `0` / `7` `8` | Song volume / guitar volume |
+| `,` `.` | Audio / notes sync, 10 ms steps |
+| `Ctrl+,` `Ctrl+.` | Guitar timing |
+| `M` | Hear your guitar on / off |
+| `T` | Next guitar tone |
+| `Shift+T` | Your saved sounds, on the Pedalboard tile |
+| `Ctrl+drag`, `Ctrl+click` | Select bars; then `P` play, `S` slower, `Esc` clear |
+| `Ctrl+S` | Save the selection or loop as a lick |
+| `F1` or `?` | Every key on one sheet |
+| `Esc` / `Backspace` | Back to the library (`Esc` first closes the end-of-song card) |
+
+The stem mixer has no keys; it is in *Controls* > *PITCH & STEMS*.
+
+In the amp room:
+
+| Key | What it does |
+| --- | --- |
+| `1`-`4` | Scenes |
+| `←` `→` | Previous / next saved sound |
+| `G` / `L` | The Rig / Sounds tab |
+| `Ctrl+F` | Search the sounds |
+| `` ` `` | A/B against the saved sound |
+| `Tab`, `Space`, `E` | Next block, switch it on / off, open its editor |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
+| `R` / `Shift+R` | Record what you hear (again: pause / resume) / stop and save |
+| `Esc` | Back |
+
+In the library:
+
+| Key | What it does |
+| --- | --- |
+| typing | Search |
+| `Enter` / `Shift+Enter` | Play / pick the part |
+| `Ctrl+D` | Favourite |
+| `Ctrl+P` | Add to a playlist |
+| `Del` | Remove from this playlist |
+| `Tab` | Sort |
+| `F5` | Read the song folders again |
+
+Anywhere: `F2` settings, `F11` full screen. On Home, `A` opens the amp room.
+
+You can also drop a `.psarc` or `.feedpak` file, or a folder, on the window.
+
+
+### Building from source
+
+The source in this repository is the same code as the release, minus the parts
+for one particular USB pedal that only I use.
+
+On Windows you need Rust (stable, MSVC toolchain) with the Visual Studio Build
+Tools ("Desktop development with C++"), and LLVM for ASIO support and the
+time-stretcher: set `LIBCLANG_PATH` to LLVM's `bin` folder. The build
+downloads the ASIO SDK.
+
 ```
-
-## If something's not right
-
-**Songs say *needs keys* (in red).**
-1. Check that `keys.json` is in the quickRS folder, next to `quickrs.exe`.
-2. Close quickRS.
-3. Open quickRS again.
-4. Press **F5**. (F5 alone, without closing quickRS first, doesn't pick up new keys.)
-5. Still *needs keys*? Go to [Check the keys](#check-the-keys).
-
-The hint quickRS shows for such a song points to *Settings › Library*, but the keys aren't there. They only go in
-`keys.json`, in the quickRS folder.
-
-#### Check the keys
-
-quickRS itself shows no error for a wrong `keys.json`: the songs just keep saying *needs keys*. The converter
-is the place to check.
-
-1. In the quickRS folder, double-click `quickRS Converter.exe`.
-2. Read its top line:
-   - **Keys found: ready to convert**: the keys work. Close quickRS, open it again, and press F5.
-   - **keys.json is missing**: either there's no `keys.json`, or it's there but something's wrong with it. The
-     converter doesn't say which. Check the three things below.
-
-The three things to check:
-
-- **The name.** It may have been saved as `keys.json.txt`, and Windows may hide the `.txt`, so the name looks
-  right. Open the file in Notepad, then do steps 10 to 14 of [step 2](#step-2-add-rocksmiths-two-keys) again,
-  typing `"keys.json"` with the quotes.
-- **Example text left in.** Open `keys.json` in Notepad. There must be no `<` or `>` left in it.
-- **Keys pasted wrongly.** Each key must be whole (64 characters, or the `0x1A, 0x2B, …` form), on one line,
-  between its two quotes. The quotes, the colons and the comma must still be there.
-
-After fixing it, press *Check again* in the converter. When it says *Keys found*, close quickRS, open it again,
-and press F5.
-
-**No songs at all.** Drag your `dlc` folder onto the quickRS window: see *If you don't see your songs* in
-[step 3](#step-3-start-quickrs).
-
-**Windows warns about an unknown app.** Click *More info*, then *Run anyway*.
-
-**The converter's "Your Rocksmith songs" box is empty.** Press *Browse…* and pick your `dlc` folder.
-
-**Convert songs.bat doesn't offer your songs folder when it asks.** Type or paste the full path of your `dlc`
-folder, then press Enter.
-
----
-
-## What it does
-
-quickRS reads the songs you already have and turns them into a fast, clean practice tool. It runs next to your
-Rocksmith install and never changes it.
-
-### 🎸 Play along to real tab
-The tab scrolls with the song and highlights the bar you're in, with the next notes ringed. The Lead, Rhythm and
-Bass parts are one click apart, and the rhythm notation is drawn under the staff. Next to the tab are the **lyrics**,
-a **tuner** set to the song's tuning, and the **note panel**.
-
-![Snow (Hey Oh) with the note panel on the guitar neck](screenshots/neck-dark.png)
-
-**The note panel** shows what's coming next: a chord on a piano, with its shape and fingering, or a single note on
-the guitar neck, with the string and fret. It also shows the note it hears you play ("you: Eb3 +3¢").
-
-<img src="screenshots/zoom_note_panel-light.png" width="700" alt="The note panel: a chord on the piano, a note on the neck">
-
-Move the tiles around, or turn off the ones you don't need. Here the tuner is at the top:
-
-![The tuner, score and lyrics tiles](screenshots/tuner_lyrics-dark.png)
-
-### 🔁 Loop it, slow it down, level up
-**Loop a section:** `[` and `]` set the loop's start and end (snapped to the beat, with a short lead-in each time
-round), and `L` loops the section you're in. The loop shows on the tab and on the seek bar:
-
-<img src="screenshots/zoom_loop-dark.png" width="760" alt="A loop from 0:36 to 0:48, on the tab and the seek bar">
-
-**Hear a passage on its own:** Ctrl+drag across some bars (or Ctrl+click a bar) to select them. A bar of keys pops
-up under the selection: **Play** (`P`) plays it once, **Loop** repeats it, and **Slow** (`S`) takes it to 70%, then
-50%, without changing the pitch. The key on the left chooses what you hear:
-
-- **The synth guitar** (the wave): only the notes in the tab, played on a synthesised guitar, so you hear exactly
-  what's written, even at 50% speed.
-- **The song** (the bars): the real recording of that passage, with the band.
-
-<img src="screenshots/zoom_synth_or_song-dark.png" width="760" alt="A selection played on the synth guitar at 70% speed, and the same selection playing the song">
-
-![Monkey Wrench with a loop over three bars](screenshots/loop-light.png)
-
-**Slow the whole song down** with the speed knob (25% to 150%, the pitch stays the same). **Jump to any section**
-from the list over the seek bar, or with PgUp and PgDn:
-
-![Strawberry Fields Forever with the section list open](screenshots/sections-light.png)
-
-**Practice controls** (the *Controls* key) have it all in one place: speed, difficulty, the loop keys, and
-*Level up after a clean loop*, which steps the difficulty up each time you nail the loop.
-
-![Practice controls](screenshots/controls-light.png)
-
-### 🎯 Scored as you play
-Your guitar is listened to as you play. Every note counts as hit, late, early or missed, and your best runs are
-kept for each part.
-
-![Results for Heat of the Moment](screenshots/results-dark.png)
-
-### 📚 Your whole library, straight away
-quickRS looks for your songs by itself, in your Steam libraries. You get covers, search, sorting, favourites,
-playlists, a tuning filter, and a preview of the song you've selected. Home picks up where you left off.
-
-![Home](screenshots/00_home-light.png)
-
-![The library](screenshots/02_library_selected-dark.png)
-
-![Picking a part](screenshots/03_picker-light.png)
-
-### 🎛️ Your tone, your look
-Built-in guitar tones (As is, Clean, Crunch, Lead, Bass, Acoustic), or make your own with the drive, EQ and
-effects knobs, and save it. Three themes: Midnight and Graphite (dark) and Daylight (light). Four knob styles.
-
-![Guitar tone](screenshots/20_settings_tone-dark.png)
-
-### 🔌 Your guitar, your way
-- **Rocksmith Real Tone Cable:** plug it in and it's picked, as in Rocksmith.
-- **Audio interfaces and amp modellers:** WASAPI (with a low-latency exclusive mode) or ASIO, and your RS_ASIO
-  setup works too.
-- **A microphone**, for an acoustic guitar.
-
-It follows devices as you plug them in and out, and finds your guitar's channel from the first notes you play.
-
----
-
-## Build it yourself
-
-The whole program is here as Rust source (MIT), the same code as the release.
-
-| Folder | What's in it |
-|---|---|
-| [`quickRS/`](quickRS) | the program, built and ready to run (the release zip's contents) |
-| `crates/qrs-app` | the player, `quickrs.exe` |
-| `crates/qrs-convert` | the converter window, `quickRS Converter.exe` |
-| `crates/qrs-cli` | the command-line tools, `quickrs-cli.exe` (converter, song info, tabs, devices) |
-| `crates/qrs-formats` | Rocksmith 2014 psarc / sng / xml and feedpak, the chart model, tab rendering |
-| `crates/qrs-audio` | the audio engine: WASAPI and ASIO devices, tones, decoding, slow-down, the synth |
-| `crates/qrs-analysis` | pitch, onset and note detection, scoring |
-| `crates/qrs-library` | the library scan, settings and user data, the feedpak exporter |
-| `crates/qrs-ui` | the look: themes, fonts, components |
-| `share/` | the release's readme, `Convert songs.bat`, and `package.ps1`, which makes the release zip |
-
-**You need** (Windows 10 or 11, 64-bit):
-- [Rust](https://rustup.rs) (stable) with the MSVC toolchain, and the *Visual Studio Build Tools* with
-  *Desktop development with C++*.
-- [LLVM](https://github.com/llvm/llvm-project/releases), for the ASIO support: set `LIBCLANG_PATH` to its `bin`
-  folder. The ASIO SDK is downloaded by the build.
-
-**Build and run:**
-
-```bat
 cargo build --release -p qrs-app -p qrs-cli -p qrs-convert
-cargo run --release -p qrs-app
 cargo test --workspace
-powershell -ExecutionPolicy Bypass -File share\package.ps1
 ```
 
-The programs land in `target/release`; `package.ps1` makes the release zip in `dist\share`. For your songs,
-put `keys.json` in the folder you run from (it's in `.gitignore`), as in
-[step 2](#step-2-add-rocksmiths-two-keys) above.
+The programs are in `target/release`: `quickrs.exe` (the player),
+`quickrs-cli.exe` (song info, tabs, conversion, devices, take checks) and
+`quickrs-convert.exe` (the converter window, shipped as
+`quickRS Converter.exe`).
 
----
+On macOS you need Rust (rustup) and Xcode or its Command Line Tools.
+`bash tools/mac/bundle.sh` builds the universal `quickRS.app` and its zip and
+`.dmg` into `dist/mac/`; step by step in [docs/BUILDING-macOS.md](docs/BUILDING-macOS.md).
+`.github/workflows/release-mac.yml` builds the same on GitHub's Macs.
 
-## Keyboard shortcuts
 
-| | |
-|---|---|
-| `Space` | play / pause |
-| `[` `]` `L` | loop start / end / this section |
-| `↑` `↓` | zoom the tab |
-| `F2` | settings |
-| `F11` | full screen |
-| `Esc` | back |
+### Legal
 
-Every page shows its keys on its buttons.
+quickRS is not made by or affiliated with Ubisoft. Rocksmith is a trademark of
+Ubisoft Entertainment. quickRS includes no songs and no decryption keys. It
+plays songs you own and custom songs (CDLC); please don't share what you
+extract. quickRS is MIT licensed; the Manrope font is SIL OFL and ww2ogg's
+codebooks are BSD.
 
----
 
-## ☕ Support it
+### Reporting a bug
 
-quickRS is free, and it'll stay free. But vibecoding isn't free! The AI that wrote most of this code runs on
-credits. If quickRS helps your practice, you can buy me a coffee:
+In quickRS: Settings (`F2`) > *Updates* > *Report a bug*. It opens a new
+issue on [GitHub Issues](https://github.com/arpan2711/quickRS-player/issues)
+in your browser with your quickRS version and system filled in; say what
+happened and what you did just before. *Show the log file* finds the log to
+attach if quickRS crashed or showed an error. You need a GitHub account.
+See [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#reporting-a-bug).
 
-### [**ko-fi.com/arpanmitra**](https://ko-fi.com/arpanmitra)
 
----
+### Support
 
-<sub>quickRS is MIT licensed. The Manrope font is SIL OFL, and ww2ogg's codebooks are BSD. quickRS isn't made by or
-connected with Ubisoft. Rocksmith is a trademark of Ubisoft Entertainment. Bring your own songs.</sub>
+quickRS is free. If it helps your practice, you can buy me a coffee at
+[ko-fi.com/arpanmitra](https://ko-fi.com/arpanmitra).

@@ -5,34 +5,50 @@
 //!   quickrs --gallery            the component gallery (a debug screen)
 //!   quickrs --screenshots DIR    render the screens in every theme to PNGs in DIR, then quit
 //!           [--size 1440x900]    (physical pixels)
+//!   quickrs --after-update PID   (the updater's restart: waits for the old app to close, P20.1)
 
 // release builds are a windowed app (no console window); messages for the command line reach the terminal it
 // was started from (see `attach_console`)
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod ampbutton;
 mod app;
 mod applog;
 #[cfg(feature = "nux")]
 mod assets;
 mod backdrop;
+mod calibrate;
 mod chrome;
 mod covers;
 mod devstatus;
+mod dialogs;
 mod gallery;
+mod gearindex;
+mod gpu;
+mod guitar_setup;
 mod home;
+mod keyfile;
 mod library;
+mod listen;
 mod loading;
 #[cfg(feature = "nux")]
 mod mg300;
 mod notewidget;
+mod pedalboard;
+mod pedalfaces;
 mod picks;
 mod player;
 mod preview;
+mod recording;
+mod room;
 mod settings;
+mod setup;
+mod shotclock;
 mod shots;
 mod state;
 mod tones;
 mod transport;
+mod update;
 
 fn icon() -> egui::IconData {
     let bytes = include_bytes!("../../../assets/icons/rsplay.png");
@@ -97,12 +113,21 @@ fn main() -> anyhow::Result<()> {
         attach_console();
     }
     let args = app::Args::parse(std::env::args().skip(1))?;
+    // started again by the updater: once the old app has closed, its leftovers go (P20.1)
+    if let Some(pid) = args.after_update {
+        update::wait_for_exit(pid);
+    }
+    update::cleanup_this();
+    // the Python app's look (screenshot parity, tools/parity/shots_compare.py); otherwise round 3
+    if std::env::var("QUICKRS_LOOK").is_ok_and(|v| v == "classic") {
+        qrs_ui::theme::set_classic(true);
+    }
     // --size (screenshots): that many pixels, which the screenshot mode makes exact once the window is up
     let size = match args.size {
         Some((w, h)) => [w as f32, h as f32],
         None => first_size(),
     };
-    let opts = eframe::NativeOptions {
+    let mut opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("quickRS Bristol 2026")
             .with_inner_size(size)
@@ -110,6 +135,11 @@ fn main() -> anyhow::Result<()> {
             .with_icon(icon()),
         ..Default::default()
     };
+    gpu::choose(&mut opts);
+    if args.screenshots.is_some() {
+        // (frames mustn't wait on a display that's gone to sleep)
+        opts.wgpu_options.surface.present_mode = eframe::egui_wgpu::wgpu::PresentMode::AutoNoVsync;
+    }
     eframe::run_native(
         "quickRS",
         opts,

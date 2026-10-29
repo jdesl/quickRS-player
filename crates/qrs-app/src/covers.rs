@@ -37,6 +37,8 @@ struct Inner {
     queued: HashSet<String>,
     queue: VecDeque<Job>,
     tick: u64,
+    /// The keys covers are read with (changed when keys are added: `set_keys`).
+    keys: Keys,
 }
 
 pub struct Covers {
@@ -45,18 +47,31 @@ pub struct Covers {
 
 impl Covers {
     pub fn new(ctx: egui::Context, dir: PathBuf, keys: Keys) -> Covers {
-        let inner: Arc<(Mutex<Inner>, Condvar)> = Arc::new((Mutex::new(Inner::default()), Condvar::new()));
+        let inner: Arc<(Mutex<Inner>, Condvar)> = Arc::new((
+            Mutex::new(Inner {
+                keys,
+                ..Default::default()
+            }),
+            Condvar::new(),
+        ));
         for n in 0..2 {
             let inner = inner.clone();
             let ctx = ctx.clone();
             let cache = ArtCache::new(dir.clone());
-            let keys = keys.clone();
             std::thread::Builder::new()
                 .name(format!("qrs-covers-{n}"))
-                .spawn(move || work(inner, ctx, cache, keys))
+                .spawn(move || work(inner, ctx, cache))
                 .ok();
         }
         Covers { inner }
+    }
+
+    /// New keys: covers that couldn't be read are tried again with them.
+    pub fn set_keys(&self, keys: Keys) {
+        if let Ok(mut g) = self.inner.0.lock() {
+            g.keys = keys;
+            g.missing.clear();
+        }
     }
 
     /// The cover of `e` for drawing `size_px` physical pixels big, or None while it's being read (or if there is
@@ -162,14 +177,14 @@ pub fn draw(
     shown
 }
 
-fn work(inner: Arc<(Mutex<Inner>, Condvar)>, ctx: egui::Context, cache: ArtCache, keys: Keys) {
+fn work(inner: Arc<(Mutex<Inner>, Condvar)>, ctx: egui::Context, cache: ArtCache) {
     let (m, cv) = &*inner;
     loop {
-        let job = {
+        let (job, keys) = {
             let Ok(mut g) = m.lock() else { return };
             loop {
                 if let Some(j) = g.queue.pop_front() {
-                    break j;
+                    break (j, g.keys.clone());
                 }
                 g = match cv.wait(g) {
                     Ok(g) => g,

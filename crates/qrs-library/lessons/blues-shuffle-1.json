@@ -1,0 +1,184 @@
+{
+  "id": "blues-shuffle-1",
+  "number": 3,
+  "course": "Rock and blues foundations",
+  "course_order": 3,
+  "title": "The 12-bar blues, the shuffle and first licks",
+  "summary": "The twelve-bar pattern under thousands of songs, the swung shuffle feel, and your first real blues licks with the blue note.",
+  "intro": [
+    "The 12-bar blues is a chord pattern twelve bars long: four bars on chord I, two on IV, two back on I, then one each of V, IV, I and I (or V to turn round). In E that's E, A and B. Once your ears know it, you can follow most blues and early rock songs the first time you hear them.",
+    "The shuffle is the feel. Beats split long-short instead of evenly, like a heartbeat: da-dum, da-dum. The rhythm items here are all in that feel, so let it sink in.",
+    "Then the licks. Blues licks are short phrases from the minor pentatonic box, often with one extra note: the flat fifth, called the blue note. Add it to box 1 and you have the blues scale. Learn a few licks exactly as recorded, then use them in your own jams."
+  ],
+  "tips": [
+    "Count the bars out loud the first few times: one, two, three, four, then the change. The 12-bar comes round so often that you'll soon feel the changes coming.",
+    "Shuffle feel: think 'ONE-and TWO-and' with the 'and' late and short. Tap your foot on the beat, not on the 'and'.",
+    "A riff on chord I usually moves to IV as the same shape one string up, and to V two frets above that. Learn it once, move it.",
+    "The blue note is a passing note. Slide or bend through it; don't sit on it.",
+    "Steal licks. Play them exactly like the record first, then change one note or the rhythm and make them yours.",
+    "Leave space between licks. In the blues, what you don't play counts as much as what you do."
+  ],
+  "credit": "The order follows Justin Sandercoe's path (justinguitar.com): the 12-bar blues and shuffle in his beginner course, 12-bar variations, then basic blues improvisation with the minor pentatonic, then the 'five blues licks from pattern 1' idea from his Essential Blues Lead Guitar course: learn a handful of licks note for note, then use them. Freddie King's Hide Away is a classic study piece for blues players. Thanks also to the many teachers who explain the blues scale this way.",
+  "riffs": [
+    {
+      "id": "green-onions",
+      "kind": "learn",
+      "name": "The 12-bar riff",
+      "artist": "Booker T. & The M.G.'s",
+      "title": "Green Onions",
+      "part": "Rhythm",
+      "start": 40.24,
+      "end": 61.65,
+      "pass": 0.85,
+      "about": "One full 12-bar blues in F, played with one small riff that moves with the chords. It's the clearest way to hear the 12-bar: four bars on F, two on Bb, two on F, then C, Bb, F, F.",
+      "how": [
+        "The riff on F: first fret of the low E string three times, then fret 4, then first fret of the A string.",
+        "On Bb, move the whole thing up one string: A string fret 1, fret 4, D string fret 1.",
+        "On C it starts on the A string at fret 3. Same shape again.",
+        "Count the bars. The change to Bb comes after four, and the C comes in bar nine."
+      ]
+    },
+    {
+      "id": "roadhouse",
+      "kind": "learn",
+      "name": "The boogie riff",
+      "artist": "The Doors",
+      "title": "Roadhouse Blues",
+      "part": "Lead",
+      "start": 11.95,
+      "end": 19.95,
+      "about": "A shuffle on the open low E with a punch at the end of every bar. This is the shuffle feel at its simplest: one string, one rhythm, played until it grooves.",
+      "how": [
+        "Pick the open low E in the long-short shuffle rhythm. Light palm mute.",
+        "The punch: fifth fret of the low E string, then slide it up to fret 7.",
+        "Next time round the punch is the fifth fret of the A string, also slid up to 7.",
+        "Keep the picking hand moving down-up in time even when you're not hitting the string. That keeps the swing steady."
+      ]
+    },
+    {
+      "id": "hide-away-opening",
+      "kind": "learn",
+      "name": "The opening: lick and shuffle",
+      "artist": "Freddie King",
+      "title": "Hide Away",
+      "part": "Lead",
+      "start": 11.2,
+      "end": 19.1,
+      "about": "The first four bars of a blues standard: a quick lick on the top strings, then a shuffle on the low strings, twice, then a third lick that leads to the change. Freddie King plays lead and rhythm at once, and here you do too.",
+      "how": [
+        "The lick: open B string twice, hammer on to fret 2, open high E, then fret 2 on the high E, sliding up to 4. Open position, very quick.",
+        "The shuffle: the open low E together with a note on the A string, which moves between open, fret 2 and fret 4. Palm mute both strings together.",
+        "The second lick reaches fret 4 on the high E and comes back down with a pull-off.",
+        "Jump between the top and bottom strings without stopping. The lick is short; the shuffle keeps the time."
+      ]
+    },
+    {
+      "id": "boom-boom",
+      "kind": "learn",
+      "name": "The answer lick",
+      "artist": "John Lee Hooker",
+      "title": "Boom Boom",
+      "part": "Lead",
+      "start": 13.58,
+      "end": 25.0,
+      "about": "Blues licks in box 1 of E minor at the twelfth fret, answering the singer. The first one walks up to the blue note; the answer that follows uses two small bends: a quarter-tone curl, then a push up a semitone to the blue note.",
+      "how": [
+        "Home position: first finger at fret 12, ring finger at 14, little finger at 15.",
+        "The opening phrase is all on the G string: frets 12, 14 and 15 (the blue note), and back.",
+        "Both bends are on the G string at fret 14. The first is a tiny curl; the second goes up a semitone. Bend with the ring finger and push with the fingers behind it.",
+        "Each answer ends on the E at fret 14 of the D string. Let it ring until the singer comes back."
+      ]
+    },
+    {
+      "id": "e-blues-scale",
+      "kind": "scale",
+      "name": "The E blues scale, box 1",
+      "artist": "John Lee Hooker",
+      "title": "Boom Boom",
+      "part": "Lead",
+      "start": 13.58,
+      "end": 25.0,
+      "about": "Box 1 of E minor pentatonic at the twelfth fret, plus the blue note in two places: fret 13 on the A string and fret 15 on the G string. Every note of the Boom Boom lick is in here. Jam over it with the lick and your own variations.",
+      "scale": {
+        "name": "E blues scale",
+        "root": "E",
+        "shape": [
+          [
+            0,
+            12
+          ],
+          [
+            0,
+            15
+          ],
+          [
+            1,
+            12
+          ],
+          [
+            1,
+            13
+          ],
+          [
+            1,
+            14
+          ],
+          [
+            2,
+            12
+          ],
+          [
+            2,
+            14
+          ],
+          [
+            3,
+            12
+          ],
+          [
+            3,
+            14
+          ],
+          [
+            3,
+            15
+          ],
+          [
+            4,
+            12
+          ],
+          [
+            4,
+            15
+          ],
+          [
+            5,
+            12
+          ],
+          [
+            5,
+            15
+          ]
+        ]
+      }
+    },
+    {
+      "id": "hide-away-chorus",
+      "kind": "learn",
+      "name": "The first twelve bars",
+      "artist": "Freddie King",
+      "title": "Hide Away",
+      "part": "Lead",
+      "start": 11.2,
+      "end": 32.95,
+      "pass": 0.8,
+      "about": "A full 12-bar blues in E, lead and shuffle together: the opening, then the same idea over A, back to E, a bar on B, a bar on A, and a turnaround. About twenty seconds and over a hundred notes, so take the wait mode slowly.",
+      "how": [
+        "Bars 1 to 4 are the opening item.",
+        "On A the shuffle moves up a string: the open A with the D string at frets 0, 2, 4 and 5.",
+        "Over B (bar 9) the lick repeats one note on the high E string, fret 2, again and again. Keep it even.",
+        "The last two bars are a turnaround: G string notes bouncing off the open high E. Learn it on its own in wait mode if it trips you up."
+      ]
+    }
+  ]
+}

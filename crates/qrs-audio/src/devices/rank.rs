@@ -83,7 +83,7 @@ const INTERFACE_BRANDS: [&str; 40] = [
     "headrush",
     "katana",
 ];
-const MIC_WORDS: [&str; 9] = [
+const MIC_WORDS: [&str; 11] = [
     "webcam",
     "camera",
     "cam ",
@@ -93,8 +93,10 @@ const MIC_WORDS: [&str; 9] = [
     "airpods",
     "conf",
     "array",
+    "built-in",
+    "macbook",
 ];
-const VIRTUAL_WORDS: [&str; 10] = [
+const VIRTUAL_WORDS: [&str; 15] = [
     "steam streaming",
     "vb-audio",
     "voicemeeter",
@@ -105,6 +107,11 @@ const VIRTUAL_WORDS: [&str; 10] = [
     "obs",
     "nvidia broadcast",
     "krisp",
+    "teams audio",
+    "zoomaudiodevice",
+    "blackhole",
+    "loopback",
+    "soundflower",
 ];
 const GENERIC_ASIO: [&str; 5] = [
     "asio4all",
@@ -159,7 +166,10 @@ pub fn rank_inputs(devices: &[DeviceInfo], rs: Option<&RocksmithSetup>) -> Vec<R
             let t = text(d);
             let (score, kind, reason): (i32, InputKind, String) = match d.id.backend {
                 Backend::Null => (-100, InputKind::Test, "test device".into()),
-                Backend::System => (100, InputKind::SystemDefault, "the system's default input".into()),
+                // the "System default" entry; macOS lists its real devices under System too, ranked by name below
+                Backend::System if d.id.id == "default-in" => {
+                    (100, InputKind::SystemDefault, "the system's default input".into())
+                }
                 _ if is_real_tone_cable(d) => {
                     (1000, InputKind::RealToneCable, "Rocksmith Real Tone Cable".into())
                 }
@@ -312,6 +322,57 @@ mod tests {
             ),
             dev(Backend::Null, "Test signal", "", Bus::Unknown, None, ""),
         ]
+        .into_iter()
+        .map(|mut d| {
+            if d.name.starts_with("System default") {
+                d.id.id = "default-in".into();
+            }
+            d
+        })
+        .collect()
+    }
+
+    #[test]
+    fn mac_picks_the_interface_over_the_built_in_mic() {
+        let mut default = dev(
+            Backend::System,
+            "System default input (MacBook Air Microphone)",
+            "",
+            Bus::Unknown,
+            None,
+            "",
+        );
+        default.id.id = "default-in".into();
+        let devices = vec![
+            default,
+            dev(
+                Backend::System,
+                "MacBook Air Microphone",
+                "",
+                Bus::Unknown,
+                None,
+                "",
+            ),
+            dev(
+                Backend::System,
+                "Microsoft Teams Audio",
+                "",
+                Bus::Unknown,
+                None,
+                "",
+            ),
+            dev(Backend::System, "Scarlett Solo USB", "", Bus::Unknown, None, ""),
+        ];
+        let r = rank_inputs(&devices, None);
+        assert_eq!(r[0].device.name, "Scarlett Solo USB");
+        assert_eq!(r[0].kind, InputKind::Interface);
+        let mic = r
+            .iter()
+            .find(|x| x.device.name == "MacBook Air Microphone")
+            .unwrap();
+        assert_eq!(mic.kind, InputKind::Microphone);
+        let teams = r.iter().find(|x| x.device.name.contains("Teams")).unwrap();
+        assert_eq!(teams.kind, InputKind::Virtual);
     }
 
     #[test]

@@ -9,6 +9,12 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# the Lessons page and the coach (off in the shared build, D50: only the owner's own build has them)
+lessons = []
+# the pedalboard's real brand names (off in the shared build, D58)
+brands = ["qrs-audio/brands"]
 
 [dependencies]
 qrs-formats.workspace = true
@@ -21,7 +27,13 @@ eframe.workspace = true
 image.workspace = true
 raw-window-handle.workspace = true
 chrono.workspace = true
+tiny-skia.workspace = true
 serde_json.workspace = true
+# the folder and keys-file pickers (Settings > Library, the welcome)
+rfd = { version = "0.15", default-features = false }
+ureq.workspace = true
+sha2.workspace = true
+zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # ASIO drivers (RS_ASIO-style setups, audio interfaces' own drivers)

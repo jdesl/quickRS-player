@@ -1,10 +1,10 @@
 //! The window's title bar in the theme's colours (Windows 11: DWM caption, text and border colours; Windows 10 just
 //! gets a dark or light bar). Port of rsplay/app.py `style_title_bar` (REDESIGN.md "Window title bar", option A).
 
-use qrs_ui::theme::t;
-
 #[cfg(windows)]
 pub fn style_title_bar(hwnd: isize) {
+    use eframe::egui;
+    use qrs_ui::theme::t;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
     use windows::core::BOOL;
@@ -27,8 +27,6 @@ pub fn style_title_bar(hwnd: isize) {
 
 #[cfg(not(windows))]
 pub fn style_title_bar(_hwnd: isize) {}
-
-use eframe::egui;
 
 /// The native window handle, if this is a Win32 window.
 pub fn hwnd_of(h: &impl raw_window_handle::HasWindowHandle) -> Option<isize> {

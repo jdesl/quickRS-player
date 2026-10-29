@@ -9,15 +9,25 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# the `lessons check` command (off in the shared build with the app's Lessons page, D50)
+lessons = []
+# the pedalboard's real brand names (off in the shared build, D58)
+brands = ["qrs-audio/brands"]
 
 [dependencies]
 qrs-formats.workspace = true
+qrs-analysis.workspace = true
 qrs-audio.workspace = true
 qrs-library.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+rtrb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+realfft.workspace = true
+sha2.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 qrs-audio = { workspace = true, features = ["asio"] }

@@ -15,7 +15,7 @@ use serde_json::Value;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Library folders (default: library_dirs from --config)
+    /// Library folders (default: the folders the app scans, from --config or the data folder's config.json)
     dirs: Vec<PathBuf>,
     /// config.json to read library_dirs from
     #[arg(long)]
@@ -217,18 +217,16 @@ struct Tally {
 pub fn run(keys: &Keys, args: Args) -> anyhow::Result<()> {
     let mut dirs = args.dirs.clone();
     if dirs.is_empty() {
-        let cfg_path = args
-            .config
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("config.json"));
-        let cfg: Value = serde_json::from_str(
-            &std::fs::read_to_string(&cfg_path)
-                .map_err(|e| anyhow::anyhow!("{}: {e} (give folders or --config)", cfg_path.display()))?,
-        )?;
-        dirs = cfg["library_dirs"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|d| d.as_str().map(PathBuf::from)).collect())
-            .unwrap_or_default();
+        // the folders the app scans: --config's, else the data folder's config.json (QUICKRS_DATA, ...)
+        if let Some(p) = &args.config
+            && !p.is_file()
+        {
+            anyhow::bail!("{}: no such file (give folders or --config)", p.display());
+        }
+        dirs = crate::library_cmd::folders(args.config.as_deref(), &[]);
+        if dirs.is_empty() {
+            anyhow::bail!("no library folders in config.json (give folders or --config)");
+        }
     }
     let masteries: Vec<f64> = args
         .mastery

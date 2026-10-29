@@ -1,5 +1,6 @@
-//! Opening a song in the background: the chart, the lyrics and the song's audio (decoded at the engine's rate),
-//! with the loading card meanwhile (port of rsplay/app.py `open_song` / `draw_loading`).
+//! Opening a song in the background: the chart, the lyrics and the song's audio (decoded at the engine's rate; a
+//! stemmed feedpak's stems each decoded and mixed as the pack sets them, P20.3), with the loading card meanwhile
+//! (port of rsplay/app.py `open_song` / `draw_loading`).
 
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
@@ -7,6 +8,7 @@ use std::time::Instant;
 use eframe::egui;
 use egui::{Align2, Painter, Rect, pos2, vec2};
 use qrs_audio::decode::{SongBuffer, decode, to_song_buffer};
+use qrs_audio::stems::StemSet;
 use qrs_formats::lyrics::Line;
 use qrs_formats::{Arrangement, Keys, Package};
 use qrs_library::SongEntry;
@@ -25,6 +27,8 @@ pub struct Loaded {
     pub arr: Arrangement,
     pub lyrics: Vec<Line>,
     pub song: Option<SongBuffer>,
+    /// A stemmed feedpak's stems (`song` is their mix as the pack sets it).
+    pub stems: Option<std::sync::Arc<StemSet>>,
     pub audio_error: String,
 }
 
@@ -52,8 +56,20 @@ impl Loading {
                     // lyrics are a nice-to-have: never block the song on them
                     let lyrics = pkg.load_lyrics().unwrap_or_default();
                     let mut audio_error = String::new();
+                    // a stemmed feedpak: every stem (one that won't decode falls back to the single-stem path)
+                    let stems = match (rate, qrs_formats::song_audio::song_stems(&mut pkg)) {
+                        (Some(rate), Ok(Some((stems, full)))) => match StemSet::decode(rate, stems, full) {
+                            Ok(set) => Some(std::sync::Arc::new(set)),
+                            Err(e) => {
+                                crate::applog::write(&format!("{}: stems: {e}", entry.path));
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
                     let song = match rate {
                         None => None,
+                        Some(_) if stems.is_some() => stems.as_ref().map(|s| s.mix(&s.default_mix())),
                         Some(rate) => match qrs_formats::song_audio::song_audio(&mut pkg, false) {
                             Ok(Some(enc)) => match decode(&enc)
                                 .map_err(|e| e.to_string())
@@ -82,6 +98,7 @@ impl Loading {
                         arr,
                         lyrics,
                         song,
+                        stems,
                         audio_error,
                     })
                 })();

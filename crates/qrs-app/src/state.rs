@@ -10,7 +10,7 @@ use std::time::Instant;
 use eframe::egui;
 use qrs_audio::{Audio, AudioPrefs};
 use qrs_formats::Keys;
-use qrs_library::{Config, DataDir, Group, Library, Prefer, SongEntry, UserData, config, group};
+use qrs_library::{Config, DataDir, Group, Lesson, Library, Prefer, SongEntry, UserData, config, group};
 use qrs_ui::theme::{self, ThemeName};
 
 use crate::covers::Covers;
@@ -36,6 +36,14 @@ pub struct AppState {
     pub config: Config,
     pub userdata: UserData,
     pub keys: Keys,
+    /// What the key lookup found, and the files it looks at (watched: songs are read again when keys arrive).
+    pub key_state: crate::keyfile::KeyState,
+    pub key_files: Vec<PathBuf>,
+    key_watch: Arc<std::sync::atomic::AtomicBool>,
+    /// A scan asked for while one was running (folders or keys changed): started when it's done.
+    scan_pending: bool,
+    /// There was no config.json at the start (the first run: the first-time setup opens, P23.14).
+    pub first_run: bool,
     pub library: Arc<Library>,
     /// The folders scanned (the configured ones, plus a feedpak folder next to a dlc folder).
     pub dirs: Vec<PathBuf>,
@@ -57,10 +65,19 @@ pub struct AppState {
     pub audio_mode: AudioMode,
     pub previewer: Previewer,
     pub toast: Option<(String, Instant)>,
+    /// Recording what you hear (P23.9): one recorder for the song player and the amp room.
+    pub rec: crate::recording::Recording,
+    /// The lessons (P13.3): the built-in ones and those in `<data>/lessons`, by number.
+    pub lessons: Vec<Arc<Lesson>>,
+    /// Checks for a newer release, and installs it (P20.1, D36).
+    pub updater: crate::update::Updater,
     /// The NUX MG-300 over USB MIDI, started the first time something shows it (the MG-300 tile); a simulated
     /// pedal in silent mode, so screenshots and night tests never touch the real one.
     #[cfg(feature = "nux")]
     pedal: Option<qrs_mg300::Pedal>,
+    /// The real pedal's control port (P11.6, D24): other programs change the pedal through `pedal`.
+    #[cfg(feature = "nux")]
+    mg300_control: Option<qrs_mg300::control::Control>,
 }
 
 impl AppState {
@@ -80,6 +97,7 @@ impl AppState {
         } else {
             None
         };
+        let first_run = !data.config().is_file();
         let mut config = Config::load(data.config());
         // the Python app's sound devices, as quickRS's choice (once)
         if config.get("audio").is_none()
@@ -89,20 +107,17 @@ impl AppState {
             let _ = config.save();
         }
         let userdata = UserData::load(data.userdata());
-        let keys_file = data.keys();
-        let keys = qrs_formats::load_keys(keys_file.is_file().then_some(keys_file.as_path()), &exe_dirs())
-            .unwrap_or_default();
+        let key_files = crate::keyfile::candidates(&data.root, &exe_dirs());
+        let (keys, key_state) = crate::keyfile::load(&key_files);
+        log_keys(&key_state);
+        let key_watch = {
+            let ctx = ctx.clone();
+            crate::keyfile::watch(key_files.clone(), move || ctx.request_repaint())
+        };
         theme::set_theme(ThemeName::parse(&config.str("theme", "midnight")));
         qrs_ui::knobs::set_style(qrs_ui::knobs::KnobStyle::parse(&config.str("knobs", "amp")));
         theme::set_string_colors(config.bool("string_colors", false));
-        let mut dirs = config.library_dirs();
-        for d in dirs.clone() {
-            if let Some(f) = config::sibling_feedpak_dir(&d)
-                && !dirs.contains(&f)
-            {
-                dirs.push(f);
-            }
-        }
+        let dirs = config.scan_dirs();
         let library = Library::new();
         library.start_scan(keys.clone(), dirs.clone(), data.index());
         let audio = (audio != AudioMode::Off).then(|| {
@@ -134,7 +149,10 @@ impl AppState {
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default()
             };
-            let a = Audio::start(prefs, dirs.clone());
+            // (Rocksmith's own setup is found next to its dlc folder, searched for songs or not)
+            let mut setup_dirs = dirs.clone();
+            setup_dirs.extend(config::rocksmith_dlc_dirs());
+            let a = Audio::start(prefs, setup_dirs);
             a.engine.set_song_gain(config.f64("volume", 0.8) as f32);
             a.engine.set_guitar_gain(config.f64("guitar_volume", 0.8) as f32);
             a.engine.set_monitor(config.bool("monitor", true));
@@ -146,12 +164,23 @@ impl AppState {
             previewer.held = Some((9.0, 30.0));
         }
         let covers = Covers::new(ctx.clone(), data.art(), keys.clone());
+        let lessons = load_lessons(&data);
+        // a newer release? (in the background, at most once a day; not in the test and screenshot modes)
+        let mut updater = crate::update::Updater::new(Some(ctx.clone()));
+        if audio_mode == AudioMode::Devices {
+            updater.auto_check(&mut config);
+        }
         AppState {
             ctx: ctx.clone(),
             data,
             config,
             userdata,
             keys,
+            key_state,
+            key_files,
+            key_watch,
+            scan_pending: false,
+            first_run,
             library,
             dirs,
             songs: Arc::new(Vec::new()),
@@ -166,14 +195,19 @@ impl AppState {
             audio,
             audio_mode,
             previewer,
+            rec: Default::default(),
             toast: migrated.map(|r| {
                 (
                     format!("Brought over {} from the Python app", r.summary()),
                     Instant::now(),
                 )
             }),
+            lessons,
+            updater,
             #[cfg(feature = "nux")]
             pedal: None,
+            #[cfg(feature = "nux")]
+            mg300_control: None,
         }
     }
 
@@ -182,7 +216,8 @@ impl AppState {
         let ctx = self.ctx.clone();
         let silent = self.audio_mode != AudioMode::Devices;
         let shots = self.audio_mode == AudioMode::Shots;
-        self.pedal.get_or_insert_with(|| {
+        let fresh = self.pedal.is_none();
+        let pedal = self.pedal.get_or_insert_with(|| {
             let wake: Box<dyn Fn(&qrs_mg300::Snapshot) + Send + Sync> =
                 Box::new(move |_| ctx.request_repaint());
             if silent {
@@ -196,7 +231,15 @@ impl AppState {
             } else {
                 qrs_mg300::Pedal::start(Some(wake))
             }
-        })
+        });
+        if fresh && !silent {
+            let file = self.data.cache().join("mg300-control.json");
+            match qrs_mg300::control::Control::start(pedal.handle(), &file) {
+                Ok(c) => self.mg300_control = Some(c),
+                Err(e) => crate::applog::write(&format!("MG-300 control port: {e}")),
+            }
+        }
+        pedal
     }
 
     pub fn prefer(&self) -> Prefer {
@@ -210,6 +253,14 @@ impl AppState {
     /// Pick up a new song list from the scan (call once a frame).
     pub fn refresh(&mut self) {
         self.input_profile();
+        if self.key_watch.swap(false, Ordering::AcqRel) {
+            self.reload_keys();
+        }
+        if self.scan_pending && !self.scanning() {
+            self.scan_pending = false;
+            self.library
+                .start_scan(self.keys.clone(), self.dirs.clone(), self.data.index());
+        }
         if self.scanning() {
             // the scan runs on its own threads: keep looking until it's done (pages may be idle meanwhile)
             self.ctx
@@ -236,12 +287,21 @@ impl AppState {
     }
 
     /// The guitar input is a microphone (an acoustic guitar played to a webcam or laptop mic, Rocksmith's
-    /// "microphone" mode, PLAN.md section 4.1).
+    /// "microphone" mode, PLAN.md section 4.1): as you set the input's kind (Settings > Audio, D33), else by the
+    /// device's kind.
     pub fn mic_input(&self) -> bool {
-        self.audio
-            .as_ref()
-            .and_then(|a| a.plan().input)
-            .is_some_and(|i| i.kind == qrs_audio::devices::rank::InputKind::Microphone)
+        use crate::calibrate::{self, Kind};
+        let device = || {
+            self.audio
+                .as_ref()
+                .and_then(|a| a.plan().input)
+                .is_some_and(|i| i.kind == qrs_audio::devices::rank::InputKind::Microphone)
+        };
+        match calibrate::current_input(self).map(|(id, _)| calibrate::load(&self.config, &id).kind) {
+            Some(Kind::Mic) => true,
+            Some(Kind::Dry | Kind::Modeller) => false,
+            _ => device(),
+        }
     }
 
     /// The setting for hearing your guitar: a microphone has its own, off at first (a mic heard through the
@@ -266,8 +326,8 @@ impl AppState {
         if let Some(a) = &self.audio {
             let (key, dflt) = self.monitor_key();
             a.engine.set_monitor(self.config.bool(key, dflt));
-            a.engine.set_onset_floor(if mic { 0.012 } else { 0.004 });
         }
+        crate::calibrate::apply(self); // (the pluck threshold: this input's, else a mic's or a guitar's)
         if mic && !first {
             self.say(
                 "A microphone is the guitar input: hearing it through the speakers is off (M turns it on)",
@@ -352,32 +412,89 @@ impl AppState {
         row_of(self, start).ok_or_else(|| "couldn't list it".into())
     }
 
-    /// A folder of songs added to the library for good (dropped on the window): saved in config.json's
-    /// library_dirs with the folders read so far (the ones found by themselves too), and read now.
+    /// A folder of songs added to the library for good (Settings > Library's Add folder, the first-time setup, or dropped on
+    /// the window): saved in config.json's library_dirs, and read now.
     pub fn add_folder(&mut self, dir: &std::path::Path) -> Result<String, String> {
-        let dir = dir.to_path_buf();
-        if self.dirs.contains(&dir) {
+        if self.dirs.iter().any(|d| config::same_dir(d, dir)) {
             return Ok(format!("{} is already in the library", dir.display()));
         }
-        let mut saved = self.config.library_dirs();
-        saved.retain(|d| d != &dir);
-        saved.push(dir.clone());
-        self.config.set_library_dirs(&saved);
+        self.config.add_dir(dir);
         self.config
             .save()
             .map_err(|e| format!("couldn't save config.json: {e}"))?;
-        self.dirs.push(dir.clone());
-        if let Some(f) = config::sibling_feedpak_dir(&dir)
-            && !self.dirs.contains(&f)
-        {
-            self.dirs.push(f);
-        }
-        self.library
-            .start_scan(self.keys.clone(), self.dirs.clone(), self.data.index());
+        self.apply_dirs();
         Ok(format!(
             "Added {} to the library: reading its songs",
             dir.display()
         ))
+    }
+
+    /// A folder taken out of the library (Settings > Library's Remove); its songs go from the list.
+    pub fn remove_folder(&mut self, dir: &std::path::Path) -> Result<String, String> {
+        self.config.remove_dir(dir);
+        self.config
+            .save()
+            .map_err(|e| format!("couldn't save config.json: {e}"))?;
+        self.apply_dirs();
+        Ok(format!("Removed {} from the library", dir.display()))
+    }
+
+    /// Search Rocksmith's own dlc folder for songs, or not (feedpaks only).
+    pub fn set_search_dlc(&mut self, on: bool) {
+        self.config.set("search_rocksmith_dlc", on);
+        self.save_config();
+        self.apply_dirs();
+    }
+
+    /// The folders to scan worked out again from config.json, and read.
+    fn apply_dirs(&mut self) {
+        self.dirs = self.config.scan_dirs();
+        self.scan_soon();
+    }
+
+    /// Read the song folders (what changed, and songs waiting for keys) as soon as no scan is running.
+    pub fn scan_soon(&mut self) {
+        if self.scanning() {
+            self.scan_pending = true;
+        } else {
+            self.library
+                .start_scan(self.keys.clone(), self.dirs.clone(), self.data.index());
+        }
+        self.ctx.request_repaint();
+    }
+
+    /// Look for the keys again (a keys file appeared or changed, or keys were saved in Settings). New keys go to
+    /// the covers and previews, and songs that needed them are read again.
+    pub fn reload_keys(&mut self) {
+        let (keys, state) = crate::keyfile::load(&self.key_files);
+        let changed = !keys.same_keys(&self.keys);
+        if state != self.key_state {
+            log_keys(&state);
+        }
+        self.key_state = state;
+        if !changed {
+            return;
+        }
+        let reread = crate::keyfile::needs_reread(&self.keys, &keys, &self.songs);
+        self.keys = keys;
+        self.covers.set_keys(self.keys.clone());
+        self.previewer.set_keys(self.keys.clone());
+        if reread {
+            // songs dropped on the window this session that needed keys
+            let waiting: Vec<String> = self
+                .loose
+                .iter()
+                .filter(|e| e.needs_keys)
+                .map(|e| e.path.clone())
+                .collect();
+            for path in waiting {
+                let fresh = qrs_library::scan::read_entries(std::path::Path::new(&path), &self.keys);
+                self.loose.retain(|e| e.path != path);
+                self.loose.extend(fresh);
+            }
+            self.scan_soon();
+            self.say("Rocksmith keys found: reading the psarc songs again");
+        }
     }
 
     pub fn scanning(&self) -> bool {
@@ -415,6 +532,29 @@ impl AppState {
         self.toast = Some((msg.into(), Instant::now()));
     }
 
+    /// Read the lessons again (the Lessons page's F5: a lesson file added or changed).
+    pub fn reload_lessons(&mut self) {
+        self.lessons = load_lessons(&self.data);
+        self.version += 1;
+    }
+
+    pub fn lesson(&self, id: &str) -> Option<Arc<Lesson>> {
+        self.lessons.iter().find(|l| l.id == id).cloned()
+    }
+
+    /// The row a riff's song is on: the row with its canonical id, else the same artist with one title inside the
+    /// other (a song named a little differently).
+    pub fn riff_row(&self, r: &qrs_library::Riff) -> Option<usize> {
+        let canon = r.canonical();
+        let rows = || (0..self.groups.len()).filter(|&g| self.listed(g));
+        rows().find(|&g| self.groups[g].canonical == canon).or_else(|| {
+            rows().find(|&g| {
+                let e = self.song(g);
+                r.is_song(&e.artist, &e.display_title())
+            })
+        })
+    }
+
     /// A message that's also an error worth keeping (quickrs.log).
     pub fn say_error(&mut self, msg: impl Into<String>) {
         let m = msg.into();
@@ -426,22 +566,19 @@ impl AppState {
         let _ = self.config.save();
     }
 
-    /// The pick in the sidebar: a dark theme <-> Daylight (remembered in config.json).
+    /// The pick in the sidebar: the three themes in turn, Midnight, Graphite, Daylight (remembered in config.json).
     pub fn toggle_theme(&mut self) {
-        let next = if theme::is_dark() {
-            ThemeName::Daylight
-        } else {
-            ThemeName::parse(&self.config.str("dark_theme", "midnight"))
+        let next = match theme::theme() {
+            ThemeName::Midnight => ThemeName::Graphite,
+            ThemeName::Graphite => ThemeName::Daylight,
+            ThemeName::Daylight => ThemeName::Midnight,
         };
         self.apply_theme(next);
     }
 
     pub fn apply_theme(&mut self, name: ThemeName) {
         theme::set_theme(name);
-        self.config.set("theme", name.key());
-        if theme::is_dark() {
-            self.config.set("dark_theme", name.key());
-        }
+        crate::setup::set_theme(&mut self.config, name);
         self.save_config();
     }
 }
@@ -496,12 +633,46 @@ pub fn python_audio_prefs(cfg: &Config) -> Option<AudioPrefs> {
     Some(p)
 }
 
+/// What the key lookup found, in quickrs.log (never the keys).
+fn log_keys(state: &crate::keyfile::KeyState) {
+    use crate::keyfile::KeyState;
+    let msg = match state {
+        KeyState::Found {
+            path: Some(p),
+            misnamed: true,
+        } => format!(
+            "keys: read from {} (saved as {}; keys.json is the right name, but it works)",
+            p.display(),
+            p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+        ),
+        KeyState::Found { path: Some(p), .. } => format!("keys: read from {}", p.display()),
+        KeyState::Found { path: None, .. } => "keys: from the RSPLAY_*_KEY environment variables".into(),
+        KeyState::Partial { path } => format!("keys: {} doesn't have both keys", path.display()),
+        KeyState::Missing => "keys: none found (psarc songs need them; feedpaks don't)".into(),
+        KeyState::Invalid { why, .. } => format!("keys: not read: {why}"),
+    };
+    crate::applog::write(&msg);
+}
+
 fn exe_dirs() -> Vec<PathBuf> {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .into_iter()
         .collect()
+}
+
+/// The built-in lessons and those in the data folder's `lessons` (a file that won't read is logged and skipped).
+/// None without the `lessons` feature (the shared build, D50): nothing then leads to a lesson.
+fn load_lessons(data: &DataDir) -> Vec<Arc<Lesson>> {
+    if !cfg!(feature = "lessons") {
+        return Vec::new();
+    }
+    let (lessons, errors) = qrs_library::lessons::load(&data.lessons());
+    for (file, why) in errors {
+        crate::applog::write(&format!("lessons/{file}: not read: {why}"));
+    }
+    lessons.into_iter().map(Arc::new).collect()
 }
 
 #[cfg(test)]

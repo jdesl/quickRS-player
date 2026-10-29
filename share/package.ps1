@@ -1,14 +1,22 @@
-# Builds the version to share (GitHub release, Reddit) and zips it: dist\share\quickRS-<version>-windows-x64.zip.
+# Builds the version to share (GitHub release, Reddit) and zips it: dist\quickRS-<version>-windows-x64.zip (next to
+# this script). The source is the repo this script sits in (the public repo keeps it in share\), else the private
+# repo next to this folder (..\quickRS-rust: this folder is quickRS-public, the release kit kept outside it).
 # It differs from tools\package.ps1 (the owner's own zip) in three ways:
 #   - the NUX MG-300 support is left out (built without the "nux" feature, so the qrs-mg300 crate isn't in quickrs
 #     or quickrs-cli, and assets\mg300 isn't included);
 #   - there are no keys, only keys.example.json;
-#   - it includes the psarc-to-feedpak converter: "quickRS Converter.exe" (a window) and "Convert songs.bat".
+#   - it includes the psarc-to-feedpak converter: "quickRS Converter.exe" (a window) and "Convert songs.bat";
+#   - it writes dist\SHA256SUMS.txt beside the zip, which the in-app updater checks downloads against.
 # It builds into target\share, so the owner's own target\release build is left alone (and can stay running).
-# Run from anywhere: powershell -ExecutionPolicy Bypass -File share\package.ps1
+# Run from anywhere: powershell -ExecutionPolicy Bypass -File package.ps1
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $root = Split-Path -Parent $here
+if (-not (Test-Path (Join-Path $root 'Cargo.toml'))) {
+    # the kit kept beside the private repo
+    $root = Join-Path (Split-Path -Parent $here) 'quickRS-rust'
+    if (-not (Test-Path (Join-Path $root 'Cargo.toml'))) { throw "no quickRS source found (looked in $root)" }
+}
 Push-Location $root
 try {
     cargo build --release --target-dir target\share -p qrs-app --no-default-features -p qrs-cli -p qrs-convert
@@ -16,7 +24,7 @@ try {
     $bin = Join-Path $root 'target\share\release'
     $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
     $name = "quickRS-$version"
-    $dist = Join-Path $root 'dist\share'
+    $dist = if ((Split-Path -Leaf $here) -eq 'share') { Join-Path $root 'dist\share' } else { Join-Path $here 'dist' }
     $out  = Join-Path $dist $name
     if (Test-Path $out) { Remove-Item -Recurse -Force $out }
     New-Item -ItemType Directory -Force (Join-Path $out 'licences') | Out-Null
@@ -42,6 +50,16 @@ try {
     Compress-Archive -Path $out -DestinationPath $zip
     $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
     Write-Host "Made $zip ($mb MB)"
+    # SHA256SUMS.txt for the updater (D36 in ../quickRS-rust): this zip's line replaces its old one; lines for other
+    # zips (the Mac one, added by the public repo's release-mac workflow) are kept.
+    $sums = Join-Path $dist 'SHA256SUMS.txt'
+    $out_sums = @(& (Join-Path $bin 'quickrs-cli.exe') sums $zip -o -)
+    if ($LASTEXITCODE -ne 0 -or $out_sums.Count -lt 1) { throw "quickrs-cli sums failed" }
+    $line = $out_sums[0]
+    $keep = @()
+    if (Test-Path $sums) { $keep = @(Get-Content $sums | Where-Object { $_ -and -not $_.EndsWith("  $name-windows-x64.zip") }) }
+    [IO.File]::WriteAllLines($sums, [string[]]($keep + $line))
+    Write-Host "Wrote $sums"
 } finally {
     Pop-Location
 }

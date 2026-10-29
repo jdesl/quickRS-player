@@ -1,5 +1,7 @@
 //! Solid keys: ivory (or the accent, for the main action) with a glossy face, a visible lower edge and a tight
-//! contact shadow; keys cut from a material; key caps engraved into a key; ivory thumbs; cut-gem round keys.
+//! contact shadow; keys cut from a material; key caps engraved into a key; ivory thumbs; cut-gem round keys;
+//! the jewel lamp (new in quickRS: note by note's switch). In the round 3 look the ivory and accent keys are flat
+//! tiles (`make_tile`) and the transport's back and forward keys are Go stones (`make_stone`); both new, the owner's.
 //! Port of rsplay/neu.py (`_make_key`, `_make_mat_key`, `_make_engraved`, `keycap`, `_make_thumb`, `thumb`,
 //! `_make_gem`, `gem_key`, `_label`). The numpy recipes are run the same way (f32 masks); what the Python app
 //! draws with pygame (the gems' facets, shadows and glow, the thumbs' smoothscale) goes through
@@ -130,6 +132,233 @@ fn make_key(w: usize, h: usize, rr: i32, accent: bool, pressed: bool, s: f64) ->
     l.image(None)
 }
 
+/// Corner radius (points) of a flat key at most, in the round 3 look.
+const TILE_R: f32 = 7.0;
+
+/// Smooth value noise in one dimension, -1..1.
+fn vnoise(t: f32) -> f32 {
+    let hash = |i: f32| -> f32 {
+        let x = ((i as f64) * 12.9898 + 78.233).sin() * 43758.5453;
+        (x - x.floor()) as f32 * 2.0 - 1.0
+    };
+    let (i, f) = (t.floor(), t - t.floor());
+    let k = f * f * (3.0 - 2.0 * f);
+    hash(i) + (hash(i + 1.0) - hash(i)) * k
+}
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// A key as a flat tile (round 3, the owner's): tight corners, a face lit a little from the upper left with a broad
+/// satin sheen across its top (no gloss spot), a polish line along the top and a thin edge along the bottom, a tight
+/// contact shadow. Ivory has its grain: fine lines along the key, wavering, a few darker fibres, faint yellowing.
+fn make_tile(w: usize, h: usize, rr: i32, accent: bool, pressed: bool, s: f64) -> Image {
+    let k = key_palette(accent);
+    let th = t();
+    let m = key_margin(s);
+    let (cw, ch) = (w + 2 * m as usize, h + 2 * m as usize);
+    let shape = Mask::rrect(w as f32, h as f32, rr as f32, m as f32, m as f32, cw, ch);
+    let mut l = Layers::new(cw, ch);
+    let a = th.keysh_a;
+    if !pressed {
+        l.over_c(
+            th.key_sh,
+            &shape
+                .blur((pxr(1.8, s) as f32).max(0.7))
+                .shift(0, pxr(2.0, s).max(1))
+                .scale(a * 0.45),
+        );
+    }
+    l.over_c(
+        th.key_sh,
+        &shape.blur(0.6).shift(0, pxr(1.0, s).max(1)).scale(a * 0.9),
+    );
+    let (top, mid, bot) = (rgbf(k.top), rgbf(k.mid), rgbf(k.bot));
+    let yellow = [236.0f32, 222.0, 186.0];
+    let unit = (s as f32).max(0.5);
+    let mut face = Vec::with_capacity(cw * ch);
+    for y in 0..ch {
+        let ys = ((y as f32 - m as f32) / h.max(1) as f32).clamp(0.0, 1.0);
+        for x in 0..cw {
+            let xs = ((x as f32 - m as f32) / w.max(1) as f32).clamp(0.0, 1.0);
+            // lit a little from the upper left: lighter there, warmer toward the lower right
+            let tt = (0.62 * ys + 0.38 * xs).clamp(0.0, 1.0);
+            let base: [f32; 3] = if tt < 0.6 {
+                std::array::from_fn(|i| top[i] + (mid[i] - top[i]) * (0.25 + tt / 0.6 * 0.75))
+            } else {
+                std::array::from_fn(|i| mid[i] + (bot[i] - mid[i]) * ((tt - 0.6) / 0.4) * 0.45)
+            };
+            let mut c = base;
+            if !accent {
+                // the grain, in screen pixels (so it's as fine on a big key as a small one)
+                let (gx, gy) = (x as f32 / unit, y as f32 / unit);
+                let wy = gy + 0.9 * (gx * 0.019 + 1.3).sin() + 0.5 * (gx * 0.006 + gy * 0.09).sin();
+                let line = 0.65 * vnoise(wy * 1.1) + 0.35 * vnoise(wy * 0.37 + 11.0);
+                let fibre = smoothstep(0.55, 0.9, vnoise(wy * 0.21 + 5.0))
+                    * (0.5 + 0.5 * vnoise(gx * 0.04 + wy * 0.3));
+                let g = 1.0 + 0.016 * line - 0.03 * fibre;
+                let age = 0.06 * (0.5 + 0.5 * vnoise(gx * 0.012 + gy * 0.05 + 3.0));
+                for i in 0..3 {
+                    c[i] = (c[i] * (1.0 - age) + yellow[i] * age) * g;
+                }
+            }
+            // a broad satin sheen across the top third, strongest toward the light
+            let sheen = (-((ys - 0.24) / 0.2).powi(2)).exp() * (0.75 + 0.25 * (1.0 - xs));
+            let sk = if accent { 0.16 } else { 0.11 } * sheen;
+            face.push(std::array::from_fn(|i| {
+                (c[i] * (1.0 - sk) + 255.0 * sk).min(255.0)
+            }));
+        }
+    }
+    l.over_img(&face, &shape);
+    l.over(
+        [255.0; 3],
+        &shape.minus(&shape.shift(0, 1)).scale(k.top_line * 0.6),
+    );
+    l.over([255.0; 3], &shape.minus(&shape.shift(1, 0)).scale(0.22));
+    let ed = pxr(if pressed { 1.0 } else { 1.6 }, s).max(1);
+    l.over_c(k.edge, &shape.minus(&shape.shift(0, -ed)).scale(0.85));
+    l.over_c(k.edge, &shape.minus(&shape.shift(-1, 0)).scale(0.25));
+    l.image(None)
+}
+
+/// A white clamshell Go stone (hamaguri) `d` px across, seen from above on the panel, lit from the upper left as everything else is: a
+/// lens-shaped body (shaded by its curve), a soft broad sheen and a smaller brighter one where the light reflects,
+/// light glowing through the rim on the far side, the shell's fine growth lines, and its
+/// shadow on the panel (a soft one and a tight contact one; only the contact one when pressed). Drawn 3x and
+/// shrunk. Returns (surface, margin).
+fn make_stone(d: i32, pressed: bool) -> (Image, i32) {
+    let th = t();
+    let m = ((d as f64 * 0.22).ceil() as i32).max(5);
+    let n = (d + 2 * m) as usize;
+    let ss = 3usize;
+    let nn = n * ss;
+    let c = nn as f32 / 2.0;
+    let rad = (d as f32 / 2.0 - 0.25) * ss as f32;
+    let norm = |x: f32, y: f32, z: f32| {
+        let l = (x * x + y * y + z * z).sqrt();
+        (x / l, y / l, z / l)
+    };
+    let lt = norm(-0.42, -0.58, 0.70);
+    let hv = norm(lt.0, lt.1, lt.2 + 1.0);
+    // the body a soft white, so the glint can show brighter than it
+    let body = [245.0f32, 244.0, 239.0];
+    let (amb, dif) = (0.68f32, 0.30f32);
+    // a broad satin sheen and a crisp glint (strength, exponent)
+    let ((s1, e1), (s2, e2)) = ((0.22f32, 28.0f32), (0.85f32, 900.0f32));
+    // light through the rim, and its tint
+    let (sss, sss_tint) = (0.10f32, [255.0f32, 252.0, 240.0]);
+    // the shell's growth lines are arcs about a point far off the stone
+    let fx = c + 2.8 * rad * (-150f32).to_radians().cos();
+    let fy = c + 2.8 * rad * (-150f32).to_radians().sin();
+    let mut col = vec![[0f32; 3]; n * n];
+    let mut cov = vec![0f32; n * n];
+    for y in 0..nn {
+        for x in 0..nn {
+            let (dx, dy) = (x as f32 + 0.5 - c, y as f32 + 0.5 - c);
+            let rr = (dx * dx + dy * dy).sqrt();
+            let a = (rad - rr + 0.5).clamp(0.0, 1.0);
+            if a <= 0.0 {
+                continue;
+            }
+            let (u, v) = (dx / rad, dy / rad);
+            let r = (u * u + v * v).sqrt().min(1.0);
+            // a lens, not a ball: nearly flat across the middle, curving away fast toward the rim
+            let tilt = 1.19 * r.powf(1.7);
+            let (su, sv) = if r > 1e-6 { (u / r, v / r) } else { (0.0, 0.0) };
+            let nv = (tilt.sin() * su, tilt.sin() * sv, tilt.cos());
+            let ndl = (nv.0 * lt.0 + nv.1 * lt.1 + nv.2 * lt.2).max(0.0);
+            let ndh = (nv.0 * hv.0 + nv.1 * hv.1 + nv.2 * hv.2).max(0.0);
+            // the growth lines: thin, varying in spacing, clearer in some bands than others, a faint warmth in a few
+            let mut cc = body;
+            let fd = ((x as f32 - fx).powi(2) + (y as f32 - fy).powi(2)).sqrt() / rad;
+            let period = 0.055 * (1.0 + 0.25 * (fd * 2.3).sin());
+            let ph = fd / period + 0.35 * vnoise(fd * 7.0);
+            let line = smoothstep(0.6, 1.0, 0.5 + 0.5 * (ph * std::f32::consts::TAU).sin());
+            let band = 0.3 + 0.7 * (0.5 + 0.5 * (fd * 5.1 + 1.7).sin());
+            let warm = 0.5 + 0.5 * (fd * 3.3 + 0.4).sin();
+            for (i, ci) in cc.iter_mut().enumerate() {
+                let tint = [1.0, 0.99, 0.965][i];
+                *ci *= (1.0 - 0.045 * line * band) * (1.0 - (1.0 - tint) * 0.6 * warm);
+            }
+            // shaded by its curve; the lower rim also sees the dark panel
+            let shade = amb + dif * ndl - 0.07 * smoothstep(0.35, 1.0, r) * v.max(0.0);
+            // light through the rim on the side away from the light
+            let rim = smoothstep(0.78, 0.96, r) * (1.0 - smoothstep(0.96, 1.0, r));
+            let back = rim * (0.6 * u + 0.8 * v).max(0.0) * sss;
+            let spec = s1 * ndh.powf(e1) + s2 * ndh.powf(e2);
+            let edge = 1.0 - 0.16 * smoothstep(0.93, 1.0, r);
+            let i = (y / ss) * n + x / ss;
+            for ch in 0..3 {
+                let v = (cc[ch] * shade + sss_tint[ch] * back) * edge + 255.0 * spec;
+                col[i][ch] += v.min(255.0) * a;
+            }
+            cov[i] += a;
+        }
+    }
+    let k2 = (ss * ss) as f32;
+    let face: Vec<[f32; 3]> = col
+        .iter()
+        .zip(&cov)
+        .map(|(cl, &cv)| {
+            if cv > 0.0 {
+                std::array::from_fn(|i| cl[i] / cv)
+            } else {
+                [0.0; 3]
+            }
+        })
+        .collect();
+    let alpha = Mask {
+        w: n,
+        h: n,
+        v: cov.iter().map(|&cv| cv / k2).collect(),
+    };
+    let disc = Mask::disc(n, n, n as f32 / 2.0, n as f32 / 2.0, d as f32 / 2.0);
+    let df = d as f32;
+    let mut l = Layers::new(n, n);
+    let a = th.keysh_a;
+    if !pressed {
+        l.over_c(
+            th.key_sh,
+            &disc
+                .blur((0.1 * df).max(1.0))
+                .shift((0.04 * df) as i32, (0.12 * df).round() as i32)
+                .scale(a * 0.6),
+        );
+    }
+    l.over_c(
+        th.key_sh,
+        &disc
+            .blur((0.03 * df).max(0.6))
+            .shift(0, ((0.035 * df).round() as i32).max(1))
+            .scale(a * 0.95),
+    );
+    l.over_img(&face, &alpha);
+    (l.image(None), m)
+}
+
+/// A Go stone round key's body at rect (no icon): `min(w, h)` across, centred.
+pub(crate) fn stone_px(p: &Painter, pr: PxRect, pressed: bool) {
+    let d = pr.w.min(pr.h);
+    if d < 6 {
+        return;
+    }
+    let key = key_of(("stone", d, pressed, theme::generation()));
+    let m = ((d as f64 * 0.22).ceil() as i32).max(5);
+    let (tex, size) = texture(p.ctx(), Store::Small, key, || make_stone(d, pressed).0);
+    let (cx, cy) = (pr.x + pr.w / 2, pr.y + pr.h / 2);
+    blit(
+        p,
+        tex,
+        size,
+        (cx - d / 2 - m) as f32,
+        (cy - d / 2 - m) as f32,
+        Color32::WHITE,
+    );
+}
+
 /// A key's body (no label) at rect: ivory, or the accent when it's the main action.
 pub fn key_face(p: &Painter, rect: Rect, r: Option<f32>, accent: bool, pressed: bool) {
     key_face_px(
@@ -149,7 +378,15 @@ pub(crate) fn key_face_px(p: &Painter, pr: PxRect, r: Option<f64>, accent: bool,
         return;
     }
     let rr = radius_px(pr.w, pr.h, r, ppp);
+    // round 3: a flat tile, its corners tighter unless it's a round key
+    let tile = !theme::classic();
+    let rr = if tile && (r.is_some() || pr.w != pr.h) {
+        rr.min(pxr(TILE_R, s))
+    } else {
+        rr
+    };
     let key = key_of((
+        tile,
         "key",
         pr.w,
         pr.h,
@@ -161,7 +398,11 @@ pub(crate) fn key_face_px(p: &Painter, pr: PxRect, r: Option<f64>, accent: bool,
     ));
     let m = key_margin(s);
     let (tex, size) = texture(p.ctx(), Store::Small, key, || {
-        make_key(pr.w as usize, pr.h as usize, rr, accent, pressed, s)
+        if tile {
+            make_tile(pr.w as usize, pr.h as usize, rr, accent, pressed, s)
+        } else {
+            make_key(pr.w as usize, pr.h as usize, rr, accent, pressed, s)
+        }
     });
     blit(p, tex, size, (pr.x - m) as f32, (pr.y - m) as f32, Color32::WHITE);
 }
@@ -467,6 +708,8 @@ pub(crate) fn thumb_px(p: &Painter, cx: i32, cy: i32, d: i32) -> PxRect {
 pub enum Gem {
     Ruby,
     Emerald,
+    /// A ruby unlit (the jewel lamp off; new in quickRS).
+    Garnet,
 }
 
 pub struct GemSpec {
@@ -502,6 +745,16 @@ impl Gem {
                 ink: Color32::from_rgb(242, 255, 249),
                 glow: Color32::from_rgb(56, 224, 150),
                 shade: Color32::from_rgb(0, 30, 18),
+            },
+            Gem::Garnet => GemSpec {
+                h: 347.0,
+                s: 55.0,
+                l: 15.0,
+                k: 11.0,
+                alt: 4.0,
+                ink: Color32::from_rgb(255, 243, 245),
+                glow: Color32::from_rgb(120, 30, 50),
+                shade: Color32::from_rgb(20, 0, 4),
             },
         }
     }
@@ -697,6 +950,97 @@ pub(crate) fn gem_key_px(p: &Painter, pr: PxRect, gem: Gem, pressed: bool) {
         (cy - d / 2 - m) as f32,
         Color32::WHITE,
     );
+}
+
+/// The jewel lamp: a small cut ruby set in a sunken socket, like an amp's jewel pilot light. `lit` 0 is off (a
+/// dark garnet, no light thrown), 1 on (the ruby, its light on the panel round it); in between fades from one to
+/// the other, and above 1 (to 2) a halo swells round it (note by note waiting for you). `d` is the stone's
+/// diameter (points); the socket is a little wider. Returns the socket's rect.
+pub fn jewel_lamp(p: &Painter, center: Pos2, d: f32, lit: f32, hot: bool) -> Rect {
+    let ppp = p.pixels_per_point();
+    let s = sc(ppp);
+    let dp = pxr(d, s).max(6);
+    let rim = pxr(2.0, s).max(1);
+    let (cx, cy) = (ipx(center.x, ppp), ipx(center.y, ppp));
+    let sock = PxRect {
+        x: cx - dp / 2 - rim,
+        y: cy - dp / 2 - rim,
+        w: dp + 2 * rim,
+        h: dp + 2 * rim,
+    };
+    let lit = lit.clamp(0.0, 2.0);
+    let on = lit.min(1.0);
+    // the halo (in steps, so a handful of textures serve every frame of the swell)
+    let swell = ((lit - 1.0).max(0.0) * 8.0).round() / 8.0;
+    if on > 0.0 {
+        let g = Gem::Ruby.spec().glow;
+        let a = ((0.35 + 0.45 * swell) * on * 8.0).round() / 8.0;
+        crate::paint::glow_px(
+            p,
+            PxRect {
+                x: sock.x - (swell * rim as f32 * 2.0) as i32,
+                y: sock.y - (swell * rim as f32 * 2.0) as i32,
+                w: sock.w + 2 * (swell * rim as f32 * 2.0) as i32,
+                h: sock.h + 2 * (swell * rim as f32 * 2.0) as i32,
+            },
+            g,
+            7.0 + 5.0 * swell,
+            Some(a),
+            None,
+        );
+    }
+    inset_px(p, sock, Some((sock.w / 2) as f64), 1.5, crate::paint::Fill::Base);
+    let m = ((dp as f64 * 0.24).ceil() as i32).max(4);
+    let (x, y) = ((cx - dp / 2 - m) as f32, (cy - dp / 2 - m) as f32);
+    let stone = |gem: Gem, pressed: bool, alpha: f32| {
+        if alpha <= 0.0 {
+            return;
+        }
+        let key = key_of(("gem", dp, gem, pressed, theme::generation()));
+        let (tex, size) = texture(p.ctx(), Store::Small, key, || make_gem(dp, gem, pressed).0);
+        blit(
+            p,
+            tex,
+            size,
+            x,
+            y,
+            Color32::from_white_alpha((alpha * 255.0).round() as u8),
+        );
+    };
+    stone(Gem::Garnet, true, 1.0 - on);
+    stone(Gem::Ruby, false, on);
+    let ctr = pt(cx, ppp);
+    let cty = pt(cy, ppp);
+    let r = d / 2.0;
+    if on > 0.0 {
+        // lit from behind: a warm core showing through the stone
+        let core = Pos2::new(ctr, cty + r * 0.1);
+        let warm = |a: f32| Color32::from_rgba_unmultiplied(255, 110, 140, (a * on) as u8);
+        p.circle_filled(core, r * 0.6, warm(55.0));
+        p.circle_filled(
+            core,
+            r * 0.32,
+            Color32::from_rgba_unmultiplied(255, 205, 215, (80.0 * on) as u8),
+        );
+    }
+    // a glint on the upper left (the big stones draw theirs into the cut)
+    p.circle_filled(
+        Pos2::new(ctr - r * 0.32, cty - r * 0.36),
+        (r * 0.2).max(0.8),
+        Color32::from_white_alpha((90.0 + 110.0 * on) as u8),
+    );
+    let rect = Rect::from_min_size(
+        Pos2::new(pt(sock.x, ppp), pt(sock.y, ppp)),
+        egui::vec2(pt(sock.w, ppp), pt(sock.h, ppp)),
+    );
+    if hot {
+        p.circle_stroke(
+            rect.center(),
+            rect.width() / 2.0 + 1.5,
+            egui::Stroke::new(1.0, t().accent.gamma_multiply(0.7)),
+        );
+    }
+    rect
 }
 
 /// Text colours on keys.

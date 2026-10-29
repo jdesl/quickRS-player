@@ -7,7 +7,9 @@
 //!                   saved tones
 //!     Display       theme and knobs, string colours, note-tile instrument, notation, the tiles and their order
 //!     Practice      level-up in loops, audio sync and guitar timing
-//!     Library       song folders, rescan, psarc or feedpak, expand & preview in the list
+//!     Library       song folders (add, remove, Rocksmith's dlc folder or not), rescan, psarc or feedpak, expand &
+//!                   preview in the list, Rocksmith's keys
+//!     Updates       this version, check for a newer one (on start, or now), install it (P20.1, `update.rs`)
 //!
 //! Everything is stored in config.json straight away; an open song picks the changes up
 //! (`PlayerView::reload_settings`). The keys shown in the panel work here too (T, N, Y, 7 8 9 0, M, the sync keys,
@@ -18,8 +20,14 @@
 //! matters (`centre_x`, `centre_y`, `centred`, `inflate`).
 
 mod audio;
+mod guide;
+mod library;
 mod pages;
+mod setup;
 mod tone;
+mod updates;
+
+pub use setup::FirstSetup;
 
 use std::time::{Duration, Instant};
 
@@ -38,7 +46,20 @@ use crate::library::wheel_notches;
 use crate::player::{PlayerView, tiles};
 use crate::state::AppState;
 
-pub const SECTIONS: [(&str, &str); 5] = crate::home::SECTIONS;
+/// Home's five pages, then Updates (P20.1).
+const ALL_SECTIONS: [(&str, &str); 6] = {
+    let h = crate::home::SECTIONS;
+    [h[0], h[1], h[2], h[3], h[4], ("updates", "Updates")]
+};
+
+/// The pages in the panel (the Python look's screenshots have Home's five: no Updates there).
+fn sections() -> &'static [(&'static str, &'static str)] {
+    if theme::classic() {
+        &ALL_SECTIONS[..5]
+    } else {
+        &ALL_SECTIONS
+    }
+}
 
 /// `int(v)` of a position or length in points: `qrs_ui::units::snap`, with room for the f32 noise that sums of
 /// `px` numbers carry (a few 1e-5 px either side; `units::snap`'s 1e-6 isn't enough: at 1440 x 900 it makes the
@@ -104,6 +125,8 @@ struct TileDrag {
 
 pub struct SettingsView {
     pub section: &'static str,
+    /// The next `switch_row`'s hint in this colour (a highlighted row: Low-latency output), then cleared.
+    hint_color: Option<egui::Color32>,
     /// Set when the panel should close (the app drops it).
     pub closed: bool,
     message: Option<(String, Instant)>,
@@ -125,12 +148,28 @@ pub struct SettingsView {
     /// The device rows of the Audio page as drawn (the `input:i` / `output:i` acts index them).
     inputs: Vec<Choice>,
     outputs: Vec<Choice>,
+    /// Calibrating the guitar input (D33, P23.10), and what the last run found and said.
+    cal_run: Option<crate::calibrate::Run>,
+    cal_out: Option<crate::calibrate::Outcome>,
+    /// The guided guitar setup, in the Audio page's place while it runs (P23.8).
+    setup: Option<guide::Guide>,
+    /// How a guided setup run inside the first-time setup was left (P23.14).
+    guide_exit: Option<guide::GuideExit>,
+    /// The Library page's key boxes, what the last save or load said, and Rocksmith's dlc folders on this machine
+    /// (looked for once).
+    psarc_in: String,
+    sng_in: String,
+    key_note: Option<(String, bool)>,
+    dlc_found: Option<Vec<std::path::PathBuf>>,
+    /// Set with `closed`: open the first-time setup (P23.14).
+    pub first_setup: bool,
 }
 
 impl SettingsView {
     pub fn new(section: &str) -> SettingsView {
-        SettingsView {
-            section: SECTIONS
+        let mut v = SettingsView {
+            hint_color: None,
+            section: sections()
                 .iter()
                 .find(|s| s.0 == section)
                 .map(|s| s.0)
@@ -151,7 +190,18 @@ impl SettingsView {
             acts: Vec::new(),
             inputs: Vec::new(),
             outputs: Vec::new(),
-        }
+            cal_run: None,
+            cal_out: None,
+            setup: None,
+            guide_exit: None,
+            psarc_in: String::new(),
+            sng_in: String::new(),
+            key_note: None,
+            dlc_found: None,
+            first_setup: false,
+        };
+        v.show(section);
+        v
     }
 
     pub fn say(&mut self, msg: impl Into<String>) {
@@ -160,7 +210,61 @@ impl SettingsView {
 
     /// Show another section.
     pub fn show(&mut self, section: &str) {
-        if let Some(s) = SECTIONS.iter().find(|s| s.0 == section) {
+        self.setup = None;
+        // the guided guitar setup on the Audio page (the first-run prompt's Set up); "setup_<step>": a screenshot
+        // of that step, made up as it would be
+        // (and "setup_measure": calibrating, held mid-strum; "calibrate" / "calibrate_<step>": the Audio page's own
+        // Calibrate, P23.10)
+        if let Some(rest) = section.strip_prefix("setup") {
+            self.section = "audio";
+            match rest.strip_prefix('_') {
+                Some("measure") => self.open_staged_measure(false),
+                Some(k) => match crate::guitar_setup::Step::parse(k) {
+                    Some(step) => self.open_guide(step, true),
+                    None => self.open_guide(crate::guitar_setup::Step::Input, false),
+                },
+                None => self.open_guide(crate::guitar_setup::Step::Input, false),
+            }
+            return;
+        }
+        if let Some(rest) = section.strip_prefix("calibrate") {
+            self.section = "audio";
+            match rest.strip_prefix('_') {
+                Some("measure") => self.open_staged_measure(true),
+                Some(k) => {
+                    let step =
+                        crate::guitar_setup::Step::parse(k).unwrap_or(crate::guitar_setup::Step::Calibrate);
+                    self.open_cal_guide(step, true)
+                }
+                None => self.open_cal_guide(crate::guitar_setup::Step::Calibrate, false),
+            }
+            return;
+        }
+        if section == "audio_level" {
+            // (the screenshots: the Audio page scrolled to its end, the input level; clamped as it's drawn)
+            self.section = "audio";
+            self.scroll = 2000.0;
+            return;
+        }
+        if section == "audio_lowlat" {
+            // (the first-time setup's picture: the Audio page with its output card's switches in view, P23.14)
+            self.section = "audio";
+            self.scroll = 560.0;
+            return;
+        }
+        if section == "library_rec" {
+            // (the screenshots: the Library page's recordings folders, at its end)
+            self.section = "library";
+            self.scroll = 4000.0;
+            return;
+        }
+        if section == "library_keys" {
+            // (the welcome's Add keys, and the screenshots: the Library page at its end, the keys)
+            self.section = "library";
+            self.scroll = 2000.0;
+            return;
+        }
+        if let Some(s) = sections().iter().find(|s| s.0 == section) {
             self.section = s.0;
             self.scroll = 0.0;
         }
@@ -171,6 +275,17 @@ impl SettingsView {
     pub fn handle(&mut self, st: &mut AppState, ev: &Event) {
         if self.naming.is_some() {
             self.handle_naming(ev);
+            return;
+        }
+        // typing a key: the box has the keys (Esc leaves it)
+        let typing = st.ctx.memory(|m| {
+            m.focused()
+                .is_some_and(|id| id == library::key_box_id("psarc") || id == library::key_box_id("sng"))
+        });
+        if typing {
+            return;
+        }
+        if self.setup.is_some() && self.section == "audio" && self.guide_key(ev) {
             return;
         }
         match ev {
@@ -186,10 +301,10 @@ impl SettingsView {
                         None
                     }
                     Key::ArrowUp | Key::ArrowDown | Key::Tab => {
-                        let n = SECTIONS.len();
-                        let i = SECTIONS.iter().position(|s| s.0 == self.section).unwrap_or(0);
+                        let n = sections().len();
+                        let i = sections().iter().position(|s| s.0 == self.section).unwrap_or(0);
                         let back = *key == Key::ArrowUp || modifiers.shift;
-                        self.section = SECTIONS[(i + if back { n - 1 } else { 1 }) % n].0;
+                        self.section = sections()[(i + if back { n - 1 } else { 1 }) % n].0;
                         self.scroll = 0.0;
                         None
                     }
@@ -284,6 +399,11 @@ impl SettingsView {
             "input" | "output" | "ch" | "buffer" | "exclusive" | "rocksmith" | "devrescan" => {
                 self.audio_act(st, verb, arg)
             }
+            "cal" | "settrim" | "setpluck" | "trimstep" | "pluckstep" | "calrec" | "calkind" => {
+                self.cal_act(st, verb, arg)
+            }
+            "setup" => self.guide_act(st, arg),
+            "update" => crate::update::act(st, arg),
             "set" => {
                 if let Some((k, v)) = arg.split_once(':') {
                     st.config.set(k, v);
@@ -327,6 +447,39 @@ impl SettingsView {
             "rescan" => {
                 st.rescan();
                 self.say("Rescanning your song folders…");
+            }
+            "addfolder" => {
+                let from = st.dirs.first().cloned();
+                if let Some(dir) = crate::dialogs::pick_folder(from.as_deref()) {
+                    match st.add_folder(&dir) {
+                        Ok(msg) => self.say(msg),
+                        Err(e) => self.say(e),
+                    }
+                }
+            }
+            "rmfolder" => {
+                if let Some(dir) = arg.parse::<usize>().ok().and_then(|i| st.dirs.get(i).cloned()) {
+                    match st.remove_folder(&dir) {
+                        Ok(msg) => self.say(msg),
+                        Err(e) => self.say(e),
+                    }
+                }
+            }
+            "searchdlc" => {
+                let on = !st.config.search_dlc();
+                st.set_search_dlc(on);
+                self.say(if on {
+                    "Searching Rocksmith's dlc folder for songs"
+                } else {
+                    "Rocksmith's dlc folder left out: the folders you added only"
+                });
+            }
+            "savekeys" => self.save_keys(st),
+            "recdir_change" | "recdir_open" | "recdir_reset" => self.rec_folder(st, verb, arg),
+            "loadkeys" => self.load_keys_file(st),
+            "firstsetup" => {
+                self.first_setup = true;
+                self.closed = true;
             }
             "prefer" => {
                 st.config.set("prefer", arg);
@@ -449,7 +602,13 @@ impl SettingsView {
             Style::new(26.0, 800, th.text),
             None,
         );
-        let dw = widgets::button_width(&ctx, "Done", "Esc", 15.0, false) + px(8.0);
+        // (while the guitar setup runs, Esc closes the setup: Done shows no key)
+        let done_key = if self.setup.is_some() && self.section == "audio" {
+            ""
+        } else {
+            "Esc"
+        };
+        let dw = widgets::button_width(&ctx, "Done", done_key, 15.0, false) + px(8.0);
         let done = Rect::from_min_size(pos2(head.max.x - dw, head.min.y), vec2(dw, head.height()));
         if self.naming.is_none()
             && widgets::button(
@@ -457,7 +616,7 @@ impl SettingsView {
                 done,
                 "set-done",
                 "Done",
-                "Esc",
+                done_key,
                 ButtonStyle {
                     size: 15.0,
                     r: Some(14.0),
@@ -468,22 +627,48 @@ impl SettingsView {
         {
             self.acts.push("close".into());
         }
+        // the first-time setup again (P23.14), prominent at the top (not in the Python look's parity shots)
+        let mut right = done.min.x;
+        if !theme::classic() && self.naming.is_none() {
+            let label = "Run the first-time setup again";
+            let rw = widgets::button_width(&ctx, label, "", 14.0, false) + px(8.0);
+            let r = Rect::from_min_size(
+                pos2(done.min.x - px(14.0) - rw, head.min.y),
+                vec2(rw, head.height()),
+            );
+            if r.min.x > head.min.x + nav_w + px(200.0) {
+                self.button(
+                    ui,
+                    r,
+                    label,
+                    "",
+                    "firstsetup",
+                    ButtonStyle {
+                        size: 14.0,
+                        r: Some(14.0),
+                        accent: true,
+                        ..Default::default()
+                    },
+                );
+                right = r.min.x;
+            }
+        }
         text::draw(
             &p,
             "Changes are saved straight away",
             pos2(head.min.x + nav_w + px(28.0), centre_y(head)),
             Align2::LEFT_CENTER,
             Style::new(13.0, 500, th.caption),
-            Some(done.min.x - head.min.x - nav_w - px(48.0)),
+            Some(right - head.min.x - nav_w - px(48.0)),
         );
-        let n = SECTIONS.len() as f32;
+        let n = sections().len() as f32;
         let nav = Rect::from_min_size(
             pos2(head.min.x, head.max.y + px(24.0)),
             vec2(nav_w, 2.0 * px(10.0) + n * px(48.0) + (n - 1.0) * px(6.0)),
         );
         paint::well(&p, nav, 22.0);
         let mut y = nav.min.y + px(10.0);
-        for (key, label) in SECTIONS {
+        for &(key, label) in sections() {
             let r = Rect::from_min_size(
                 pos2(nav.min.x + px(10.0), y),
                 vec2(nav.width() - px(20.0), px(48.0)),
@@ -540,10 +725,12 @@ impl SettingsView {
                 child.disable();
             }
             match self.section {
+                "audio" if self.setup.is_some() => self.draw_guide(&mut child, st, body),
                 "audio" => self.draw_audio(&mut child, st, body),
                 "tone" => self.draw_tone(&mut child, st, body),
                 "display" => self.draw_display(&mut child, st, body),
                 "practice" => self.draw_practice(&mut child, st, body),
+                "updates" => self.draw_updates(&mut child, st, body),
                 _ => self.draw_library(&mut child, st, body),
             }
         };
@@ -696,7 +883,7 @@ impl SettingsView {
                 hint,
                 pos2(x, cy + px(11.0)),
                 Align2::LEFT_CENTER,
-                Style::new(12.0, 500, th.caption),
+                Style::new(12.0, 500, self.hint_color.take().unwrap_or(th.caption)),
                 Some(w - sr.width() - px(20.0)),
             );
             tr

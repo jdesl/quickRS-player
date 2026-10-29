@@ -877,6 +877,7 @@ fn chord_to_model(sng: &Sng, n: &SngNote) -> Result<Chord> {
         sustain: (n.sustain as f64).max(0.0),
         frets: template.frets.iter().map(|&f| f as i32).collect(),
         fingers: template.fingers.iter().map(|&f| f as i32).collect(),
+        high_density: n.mask & MASK_HIGH_DENSITY != 0,
     })
 }
 
@@ -918,6 +919,7 @@ pub fn sng_to_arrangement(sng: &Sng, meta: &ArrMeta, mastery: f64) -> Result<Arr
             },
         })
         .collect();
+    arr.phrases = crate::model::sorted_times(sng.phrase_iterations.iter().map(|p| p.start as f64));
     arr.sections = sng
         .sections
         .iter()
@@ -938,6 +940,7 @@ pub fn sng_to_arrangement(sng: &Sng, meta: &ArrMeta, mastery: f64) -> Result<Arr
             width: a.width,
         })
         .collect();
+    crate::model::anchors_end_at_next(&mut arr.anchors);
     for h in sng.handshapes_at_mastery(mastery) {
         if let Some(t) = usize::try_from(h.chord_id)
             .ok()

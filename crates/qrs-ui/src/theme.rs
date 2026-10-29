@@ -372,6 +372,20 @@ pub fn is_dark() -> bool {
     t().dark
 }
 
+static CLASSIC: AtomicBool = AtomicBool::new(false);
+
+/// The look the Python app has (neumorphic wells, opaque floating panels), for screenshot parity. Off: round 3
+/// (`mg300-mods/design/settings-dock-glass.html`), wells pressed into rubber and, in the dark themes, glass panels.
+pub fn set_classic(on: bool) {
+    if CLASSIC.swap(on, Ordering::Relaxed) != on {
+        GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn classic() -> bool {
+    CLASSIC.load(Ordering::Relaxed)
+}
+
 /// Bumped on every theme switch (caches drawn in the old colours compare it).
 pub fn generation() -> usize {
     GENERATION.load(Ordering::Relaxed)

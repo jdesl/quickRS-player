@@ -1,6 +1,7 @@
 //! The tiles in the console (port of the tile half of rsplay/app.py `PlayerView`): Note & chord (with a piano or
 //! the guitar neck, and a chord diagram), Lyrics, Score and Tuner, each a screen sunk into the console. They're
-//! chosen and ordered under the controls' TILES heading or by dragging their top edge; each has a close key.
+//! chosen and ordered under the controls' TILES heading or by dragging their top edge; each has a close key and, beside
+//! its grab bar, a key that folds it to a slim strip (a click on the strip opens it again).
 //! Every layout number is the Python app's, in its whole pixels (`qrs_ui::units`).
 
 use eframe::egui;
@@ -24,6 +25,7 @@ use crate::state::AppState;
 
 #[cfg(feature = "nux")]
 pub const TILES: &[(&str, &str)] = &[
+    ("board", "Pedalboard"),
     ("note", "Note & chord"),
     ("lyrics", "Lyrics"),
     ("score", "Score"),
@@ -33,6 +35,7 @@ pub const TILES: &[(&str, &str)] = &[
 /// Without the NUX MG-300 support (the shared build): no MG-300 tile, so the pedal is never looked for.
 #[cfg(not(feature = "nux"))]
 pub const TILES: &[(&str, &str)] = &[
+    ("board", "Pedalboard"),
     ("note", "Note & chord"),
     ("lyrics", "Lyrics"),
     ("score", "Score"),
@@ -246,6 +249,27 @@ pub fn tile_action(st: &mut AppState, name: &str) {
     set_tiles(st, &order);
 }
 
+/// Tiles folded to a slim strip (owner request, 2026-10-26): still in the column, their name showing, a click opens
+/// them again. Kept apart from "tiles" so that list keeps the Python app's shape.
+pub fn tile_collapsed(st: &AppState, key: &str) -> bool {
+    matches!(st.config.get("tiles_collapsed"), Some(Value::Array(a)) if a.iter().any(|v| v.as_str() == Some(key)))
+}
+
+pub fn set_tile_collapsed(st: &mut AppState, key: &str, on: bool) {
+    let mut keys: Vec<String> = match st.config.get("tiles_collapsed") {
+        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        _ => Vec::new(),
+    };
+    keys.retain(|k| k != key);
+    if on {
+        keys.push(key.to_string());
+    }
+    st.config.set("tiles_collapsed", json!(keys));
+}
+
+/// A folded tile's height.
+const STRIP_H: f32 = 34.0;
+
 pub fn tile_label(key: &str) -> &'static str {
     TILES.iter().find(|t| t.0 == key).map(|t| t.1).unwrap_or("")
 }
@@ -289,7 +313,7 @@ impl PlayerView {
     }
 
     /// "A string" in standard tuning, "A string (Ab)" when it's tuned to Ab.
-    fn string_label(&self, string: i32) -> String {
+    pub(super) fn string_label(&self, string: i32) -> String {
         let std = if self.chart.arr.is_bass {
             STD_BASS
         } else {
@@ -342,8 +366,17 @@ impl PlayerView {
         let (name, offs) = TUNINGS[self.tuning_choice % TUNINGS.len()];
         match offs {
             None => (
-                format!("{} (this song)", self.chart.arr.tuning_name()),
-                self.chart.opens.clone(),
+                if self.mixer.pitch == 0 {
+                    format!("{} (this song)", self.chart.arr.tuning_name())
+                } else {
+                    // the song is pitch-shifted: tune to what it sounds like
+                    format!(
+                        "{} (song {})",
+                        self.sounding_tuning_name(),
+                        super::songaudio::pitch_short(self.mixer.pitch)
+                    )
+                },
+                self.sounding_opens(),
             ),
             Some(o) => {
                 let base = if self.chart.arr.is_bass {
@@ -459,9 +492,11 @@ impl PlayerView {
         let ctx = ui.ctx().clone();
         let p = ui.painter().clone();
         let th = t();
+        // (the pedalboard steps aside on an amp modeller: the MG-300 has its own tone)
+        let board = crate::calibrate::board_tile_wanted(st);
         let order: Vec<&'static str> = tile_order(st)
             .into_iter()
-            .filter(|(_, on)| *on)
+            .filter(|(k, on)| *on && (board || *k != "board"))
             .map(|(k, _)| k)
             .collect();
         let gap = px(TILE_GAP);
@@ -483,7 +518,11 @@ impl PlayerView {
             // glide, relative to the panel's scroll
             let rel = anim::smooth(&ctx, ("tile", *k), slots[k] - y, 0.05, None);
             let ty = whole(y + rel);
-            let bottom = self.draw_tile(ui, st, k, x, ty, w, now, false);
+            let bottom = if tile_collapsed(st, k) {
+                self.draw_tile_strip(ui, k, x, ty, w, false)
+            } else {
+                self.draw_tile(ui, st, k, x, ty, w, now, false)
+            };
             self.tile_h.insert(k, bottom - ty);
             drawn.push((k, Rect::from_min_size(pos2(x, ty), vec2(w, bottom - ty))));
         }
@@ -491,7 +530,11 @@ impl PlayerView {
             && order.contains(&d.key)
         {
             let ty = whole(d.y);
-            let bottom = self.draw_tile(ui, st, d.key, x, ty, w, now, true);
+            let bottom = if tile_collapsed(st, d.key) {
+                self.draw_tile_strip(ui, d.key, x, ty, w, true)
+            } else {
+                self.draw_tile(ui, st, d.key, x, ty, w, now, true)
+            };
             self.tile_h.insert(d.key, bottom - ty);
             drawn.push((d.key, Rect::from_min_size(pos2(x, ty), vec2(w, bottom - ty))));
             ctx.set_cursor_icon(CursorIcon::Move);
@@ -501,7 +544,27 @@ impl PlayerView {
         let mouse = ctx.input(|i| i.pointer.hover_pos());
         for (k, r) in drawn {
             let grab = Self::tile_grab_rect(r);
-            let gresp = interact(ui, grab.intersect(panel), ("tile-grab", k), Sense::drag());
+            let folded = tile_collapsed(st, k);
+            // a folded tile: its whole strip is a key that opens it (its grab bar, drawn over, still drags it)
+            if folded {
+                let open = Rect::from_min_max(r.min, pos2(Self::tile_close_rect(r).min.x - px(4.0), r.max.y));
+                let oresp = interact(ui, open.intersect(panel), ("tile-open", k), Sense::click());
+                if oresp.hovered() {
+                    ctx.set_cursor_icon(CursorIcon::PointingHand);
+                }
+                if oresp.clicked() {
+                    set_tile_collapsed(st, k, false);
+                }
+            }
+            let gresp = interact(
+                ui,
+                grab.intersect(panel),
+                ("tile-grab", k),
+                Sense::click_and_drag(),
+            );
+            if folded && gresp.clicked() {
+                set_tile_collapsed(st, k, false);
+            }
             if gresp.drag_started()
                 && let Some(pos) = gresp.interact_pointer_pos()
             {
@@ -561,6 +624,40 @@ impl PlayerView {
                 vec2(bw, px(5.0)),
             );
             paint::pill(&p, bar, th.tick);
+            // beside the grab bar, in its style: a grey pill with an arrow that folds the tile to a strip (or opens
+            // it again), kept inside the tile
+            let fold = Rect::from_center_size(
+                pos2(bar.min.x - px(22.0), bar.center().y + px(1.0)),
+                vec2(px(26.0), px(13.0)),
+            );
+            let fresp = interact(ui, fold, ("tile-fold", k), Sense::click());
+            paint::pill(&p, fold, if fresp.hovered() { th.caption } else { th.tick });
+            icons::icon(
+                &p,
+                if folded { Icon::Down } else { Icon::Up },
+                fold.center(),
+                9.0,
+                th.base,
+            );
+            if fresp.hovered() {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+            }
+            if fresp.hovered() {
+                self.tip = Some((
+                    if folded {
+                        "Open the tile"
+                    } else {
+                        "Fold the tile away"
+                    }
+                    .into(),
+                    String::new(),
+                    pos2(fold.center().x, fold.min.y - px(6.0)),
+                    Align2::CENTER_BOTTOM,
+                ));
+            }
+            if fresp.clicked() {
+                set_tile_collapsed(st, k, !folded);
+            }
             let cx = Self::tile_close_rect(r);
             if widgets::round_button(
                 ui,
@@ -583,7 +680,9 @@ impl PlayerView {
                     "  ·  bring it back under TILES",
                 );
             }
-            if mouse.is_some_and(|m| grab.contains(m) && !cx.contains(m)) && self.tile_drag.is_none() {
+            if mouse.is_some_and(|m| grab.contains(m) && !cx.contains(m) && !fold.contains(m))
+                && self.tile_drag.is_none()
+            {
                 ctx.set_cursor_icon(CursorIcon::Move);
             }
         }
@@ -606,6 +705,7 @@ impl PlayerView {
         lifting: bool,
     ) -> f32 {
         match key {
+            "board" => self.draw_board_tile(ui, st, x, y, w, lifting),
             "note" => self.draw_note_tile(ui, st, x, y, w, now, lifting),
             "lyrics" => self.draw_lyrics_tile(ui, x, y, w, now, lifting),
             "score" => self.draw_score_tile(ui, st, x, y, w, lifting),
@@ -617,13 +717,31 @@ impl PlayerView {
         }
     }
 
-    /// A tile's close key (a ruby), in the top right corner kept free for it.
+    /// A tile's close key (a ruby), in the top right corner kept free for it (in the middle of a folded strip).
     fn tile_close_rect(r: Rect) -> Rect {
         let d = px(26.0);
-        Rect::from_min_size(
-            pos2(r.max.x - px(19.0) - half(d), r.min.y + px(24.0) - half(d)),
-            vec2(d, d),
-        )
+        let cy = r.min.y + px(24.0).min(half(r.height()));
+        Rect::from_min_size(pos2(r.max.x - px(19.0) - half(d), cy - half(d)), vec2(d, d))
+    }
+
+    /// A folded tile: a slim screen with its name and an arrow that says it opens. Returns its bottom.
+    fn draw_tile_strip(&mut self, ui: &Ui, key: &str, x: f32, y: f32, w: f32, lifting: bool) -> f32 {
+        let p = ui.painter().clone();
+        let th = t();
+        let card = Rect::from_min_size(pos2(x, y), vec2(w, px(STRIP_H)));
+        self.tile_card(&p, card, lifting);
+        let cy = card.center().y;
+        caps_in(
+            &p,
+            &tile_label(key).to_uppercase(),
+            pos2(card.min.x + px(18.0), cy),
+            11.0,
+            th.caption,
+            Align2::LEFT_CENTER,
+            Some(w - px(90.0)),
+        );
+        icons::icon(&p, Icon::Down, pos2(card.max.x - px(54.0), cy), 12.0, th.caption);
+        card.max.y
     }
 
     /// A tile's top edge, where it's picked up to drag.
@@ -632,15 +750,22 @@ impl PlayerView {
     }
 
     /// A tile: a screen sunk into the console (on a raised plate while it's being dragged).
-    fn tile_card(&self, p: &egui::Painter, card: Rect, lifting: bool) {
-        if lifting {
-            let d = px(10.0);
-            let plate = Rect::from_min_size(card.min - Vec2::splat(half(d)), card.size() + Vec2::splat(d));
-            paint::raised(p, plate, Some(22.0), 8.0, Fill::Base, 0.0);
-        }
-        paint::display(p, card, Some(18.0), 6.0);
+    pub(super) fn tile_card(&self, p: &egui::Painter, card: Rect, lifting: bool) {
+        tile_card(p, card, lifting);
     }
+}
 
+/// A tile: a screen sunk into the console (on a raised plate while it's being dragged).
+pub(super) fn tile_card(p: &egui::Painter, card: Rect, lifting: bool) {
+    if lifting {
+        let d = px(10.0);
+        let plate = Rect::from_min_size(card.min - Vec2::splat(half(d)), card.size() + Vec2::splat(d));
+        paint::raised(p, plate, Some(22.0), 8.0, Fill::Base, 0.0);
+    }
+    paint::display(p, card, Some(18.0), 6.0);
+}
+
+impl PlayerView {
     /// Two or three small-caps options in a sunken track, the chosen one on a small ivory key.
     fn mini_switch(&self, p: &egui::Painter, rect: Rect, labels: &[&str], sel: usize) {
         let ctx = p.ctx();
@@ -767,7 +892,64 @@ impl PlayerView {
         } else {
             th.text
         };
-        match self.play_target(now) {
+        let target = if self.ear { None } else { self.play_target(now) };
+        match target {
+            None if self.ear => {
+                // ear mode (P13.1): only what you're playing; the song's notes would give it away
+                caps(
+                    &p,
+                    "NOTE  ·  HIDDEN (EAR MODE)",
+                    pos2(lx, hy),
+                    12.0,
+                    Align2::LEFT_CENTER,
+                    Some(title_w),
+                );
+                let big = self
+                    .tuner_midi
+                    .map(qrs_analysis::pitch::note_label)
+                    .unwrap_or_else(|| "–".into());
+                let nr = self.text_base(
+                    &p,
+                    &big,
+                    lx,
+                    mid + px(14.0),
+                    40.0,
+                    if self.tuner_midi.is_some() {
+                        th.text
+                    } else {
+                        th.caption
+                    },
+                    800,
+                    Align2::LEFT_TOP,
+                    None,
+                );
+                let dx = nr.max.x + px(12.0);
+                let dw = card.max.x - pad_x - dx;
+                txt(
+                    &p,
+                    if has_input {
+                        "you're playing"
+                    } else {
+                        "no guitar input"
+                    },
+                    pos2(dx, mid - px(9.0)),
+                    14.0,
+                    th.text_2,
+                    700,
+                    Align2::LEFT_CENTER,
+                    Some(dw),
+                );
+                txt(
+                    &p,
+                    "the song's notes are hidden  ·  H shows them",
+                    pos2(dx, mid + px(11.0)),
+                    12.0,
+                    th.caption,
+                    500,
+                    Align2::LEFT_CENTER,
+                    Some(dw),
+                );
+            }
             None => {
                 caps(&p, "NOTE", pos2(lx, hy), 12.0, Align2::LEFT_CENTER, None);
                 txt(
@@ -1595,16 +1777,23 @@ impl PlayerView {
         let ring_d = px(96.0);
         let mut lines: Vec<String> = Vec::new();
         let box_h = if practice {
-            let why = if self.mastery < 0.999 {
+            let why = if self.nbn {
+                "note by note"
+            } else if self.mastery < 0.999 {
                 "below 100% difficulty"
             } else if (self.speed() - 1.0).abs() > 1e-6 {
                 "slowed down"
             } else {
                 "changed mid-song"
             };
+            let then = if self.nbn {
+                "W turns it off"
+            } else {
+                "restart at 100% to score"
+            };
             lines = text::wrap(
                 &ctx,
-                &format!("Practice run ({why}): not saved  ·  restart at 100% to score"),
+                &format!("Practice run ({why}): not saved  ·  {then}"),
                 Style::new(12.0, 700, th.late),
                 w - 2.0 * pad_x - px(24.0),
             )

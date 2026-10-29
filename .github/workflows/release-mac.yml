@@ -1,0 +1,97 @@
+# The Mac build (P20.4, D39): runs in the PUBLIC repo (arpan2711/quickRS-player), where export-public.sh puts the
+# source. Tests on Apple Silicon, builds a universal quickRS.app (tools/mac/bundle.sh), keeps the zip and dmg as a
+# workflow artifact and, for a tag (pushed, or named when started by hand), attaches them to that tag's release and
+# adds their lines to the release's SHA256SUMS.txt (the updater checks downloads against it). Windows builds are
+# made on the owner's PC and uploaded by hand. Unsigned (ad hoc): a beta until tried on real Macs.
+name: release-mac
+
+# Started by hand only (D63): from 0.3.0 the release's Mac files are built and tested on the owner's Mac and uploaded
+# by hand, so a tag push must not build and attach different ones.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the Mac build to (e.g. v0.2.0); empty = build only"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-mac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    # the private repo has this file too: macOS minutes are only spent in the public one
+    if: github.repository == 'arpan2711/quickRS-player'
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust (the repo's toolchain, both Mac targets)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+
+      - name: libclang for bindgen
+        run: |
+          dev="$(xcode-select -p)"
+          for d in "$dev/Toolchains/XcodeDefault.xctoolchain/usr/lib" "$dev/usr/lib" /Library/Developer/CommandLineTools/usr/lib; do
+            if [ -f "$d/libclang.dylib" ]; then echo "LIBCLANG_PATH=$d" >> "$GITHUB_ENV"; echo "libclang: $d"; exit 0; fi
+          done
+          echo "no libclang.dylib" >&2; exit 1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test (native arm64)
+        run: cargo test --workspace
+
+      - name: Build and bundle (universal)
+        run: bash tools/mac/bundle.sh
+
+      - name: Version
+        id: ver
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          tag="${{ github.event.inputs.tag }}"
+          if [ "${{ github.event_name }}" = "push" ]; then tag="${GITHUB_REF_NAME}"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ] && [ "$tag" != "v$v" ]; then
+            echo "::warning::tag $tag but Cargo.toml says $v: the zip is named for $v"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickRS-${{ steps.ver.outputs.version }}-macos-universal
+          path: |
+            dist/mac/*.zip
+            dist/mac/*.dmg
+            dist/mac/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: steps.ver.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          cd dist/mac
+          # a release made here (none yet for the tag) is a draft: the owner adds the Windows zip and publishes it
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --draft --title "quickRS ${TAG#v}" --notes "Mac build (beta). Windows build to follow."
+          # SHA256SUMS.txt: the release's lines (the Windows zip's) kept, the Mac lines replaced
+          rm -f old-sums.txt
+          gh release download "$TAG" --pattern SHA256SUMS.txt --output old-sums.txt 2>/dev/null || touch old-sums.txt
+          mine=$(awk '{print $2}' SHA256SUMS.txt | sed 's/^\*//')
+          { grep -v -F -f <(printf '%s\n' $mine) old-sums.txt || true; cat SHA256SUMS.txt; } > merged-sums.txt
+          mv merged-sums.txt SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" ./*.zip ./*.dmg SHA256SUMS.txt --clobber

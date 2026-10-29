@@ -4,6 +4,9 @@
 //! 1. environment variables `RSPLAY_PSARC_KEY` / `RSPLAY_SNG_KEY` / `RSPLAY_SNG_MAC_KEY` (64 hex characters);
 //! 2. a JSON file: the explicit path, else `$RSPLAY_KEYS_FILE`, else `./keys.json`, else any extra folders the
 //!    caller passes (the app's data folder), else `~/.config/rsplay/keys.json`.
+//!
+//! In each folder `keys.json.txt` and `keys.json.json` are read too when there's no `keys.json` (Notepad saves
+//! "keys.json" as keys.json.txt unless the type is set to All files; P20.2).
 
 use std::path::{Path, PathBuf};
 
@@ -56,7 +59,7 @@ impl Keys {
 pub fn parse_hex_key(value: &str, label: &str) -> Result<Key> {
     if value.contains('<') || value.contains('>') {
         return Err(Error::Other(format!(
-            "{label}: still has the placeholder text; replace it with your 64-character hex key"
+            "{label}: still has the example's <...> text; replace all of it, < and > too, with the key"
         )));
     }
     let cleaned: String = value
@@ -87,6 +90,27 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The names a keys file goes by in a folder, in order: the right one, then what editors make of it.
+pub const FILE_NAMES: [&str; 3] = ["keys.json", "keys.json.txt", "keys.json.json"];
+
+/// The keys files a folder could hold, in order (`FILE_NAMES`).
+pub fn files_in(dir: &Path) -> Vec<PathBuf> {
+    FILE_NAMES.iter().map(|n| dir.join(n)).collect()
+}
+
+/// The first keys file in a folder, if there is one.
+pub fn find_in(dir: &Path) -> Option<PathBuf> {
+    files_in(dir).into_iter().find(|p| p.is_file())
+}
+
+/// A keys file under another of `FILE_NAMES` than keys.json (keys.json.txt: Notepad's doing).
+pub fn is_misnamed(path: &Path) -> bool {
+    let Some(n) = path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+        return false;
+    };
+    n != FILE_NAMES[0] && FILE_NAMES.contains(&n.as_str())
+}
+
 /// Files that are searched for keys, in order.
 pub fn candidate_files(explicit: Option<&Path>, extra_dirs: &[PathBuf]) -> Vec<PathBuf> {
     if let Some(p) = explicit {
@@ -97,15 +121,74 @@ pub fn candidate_files(explicit: Option<&Path>, extra_dirs: &[PathBuf]) -> Vec<P
         out.push(PathBuf::from(p));
     }
     if let Ok(cwd) = std::env::current_dir() {
-        out.push(cwd.join("keys.json"));
+        out.extend(files_in(&cwd));
     }
     for d in extra_dirs {
-        out.push(d.join("keys.json"));
+        out.extend(files_in(d));
     }
     if let Some(h) = home_dir() {
-        out.push(h.join(".config").join("rsplay").join("keys.json"));
+        out.extend(files_in(&h.join(".config").join("rsplay")));
     }
+    let mut seen: Vec<PathBuf> = Vec::new();
+    out.retain(|p| {
+        let fresh = !seen.contains(p);
+        seen.push(p.clone());
+        fresh
+    });
     out
+}
+
+/// A keys.json's text as keys (no environment variables; `label` names it in errors). Also takes the text without
+/// its braces (`"psarc_key": "...", "sng_key": "..."`), as people copy it out of a message.
+pub fn keys_from_text(text: &str, label: &str) -> Result<Keys> {
+    let t = text.trim().trim_start_matches('\u{feff}');
+    let v: serde_json::Value = serde_json::from_str(t)
+        .or_else(|e| {
+            if t.starts_with('{') {
+                Err(e)
+            } else {
+                serde_json::from_str(&format!("{{{}}}", t.trim_end_matches(',')))
+            }
+        })
+        .map_err(|e| Error::Other(format!("{label}: invalid JSON ({e})")))?;
+    let serde_json::Value::Object(m) = v else {
+        return Err(Error::Other(format!("{label}: not a JSON object")));
+    };
+    let get = |field: &str| -> Result<Option<Key>> {
+        match m.get(field).and_then(|v| v.as_str()) {
+            Some(v) if !v.trim().is_empty() => parse_hex_key(v, &format!("{field} in {label}")).map(Some),
+            _ => Ok(None),
+        }
+    };
+    Ok(Keys {
+        psarc: get("psarc_key")?,
+        sng: get("sng_key")?,
+        sng_mac: get("sng_mac_key")?,
+        source: None,
+    })
+}
+
+/// Keys as a keys.json's text (the ones there are; two-space indented).
+pub fn keys_to_json(keys: &Keys) -> String {
+    let hex = |k: &Key| k.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut m = serde_json::Map::new();
+    for (name, k) in [
+        ("psarc_key", &keys.psarc),
+        ("sng_key", &keys.sng),
+        ("sng_mac_key", &keys.sng_mac),
+    ] {
+        if let Some(k) = k {
+            m.insert(name.into(), serde_json::Value::String(hex(k)));
+        }
+    }
+    serde_json::to_string_pretty(&serde_json::Value::Object(m)).unwrap_or_default() + "\n"
+}
+
+impl Keys {
+    /// The same keys (where they came from aside).
+    pub fn same_keys(&self, other: &Keys) -> bool {
+        self.psarc == other.psarc && self.sng == other.sng && self.sng_mac == other.sng_mac
+    }
 }
 
 /// Load keys from the environment and/or a keys.json file. Missing keys are `None`.
@@ -178,6 +261,60 @@ mod tests {
                 .to_string()
                 .contains("hexadecimal")
         );
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("qrs-keys-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A keys.json of made-up keys (every byte `a`, then every byte `b`).
+    fn fake_json(a: u8, b: u8) -> String {
+        format!(
+            r#"{{"psarc_key": "{}", "sng_key": "{}"}}"#,
+            format!("{a:02x}").repeat(32),
+            format!("{b:02x}").repeat(32)
+        )
+    }
+
+    #[test]
+    fn notepads_names_are_read_when_keys_json_isnt_there() {
+        let d = scratch("names");
+        assert_eq!(find_in(&d), None);
+        std::fs::write(d.join("keys.json.txt"), fake_json(1, 2)).unwrap();
+        let found = find_in(&d).unwrap();
+        assert!(found.ends_with("keys.json.txt") && is_misnamed(&found));
+        let k = load_keys(Some(&found), &[]).unwrap();
+        assert_eq!(k.psarc, Some([1; 32]));
+        // keys.json.json too, and keys.json before either
+        std::fs::remove_file(d.join("keys.json.txt")).unwrap();
+        std::fs::write(d.join("keys.json.json"), fake_json(3, 4)).unwrap();
+        assert!(find_in(&d).unwrap().ends_with("keys.json.json"));
+        std::fs::write(d.join("keys.json"), fake_json(5, 6)).unwrap();
+        let first = find_in(&d).unwrap();
+        assert!(first.ends_with("keys.json") && !is_misnamed(&first));
+        assert!(!is_misnamed(Path::new("notes.txt")));
+        // in the search order, a folder's names together
+        let c = candidate_files(None, std::slice::from_ref(&d));
+        let i = c.iter().position(|p| p == &d.join("keys.json")).unwrap();
+        assert_eq!(c[i + 1], d.join("keys.json.txt"));
+        assert_eq!(c[i + 2], d.join("keys.json.json"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn pasted_text_reads_with_or_without_braces_and_round_trips() {
+        let k = keys_from_text(&fake_json(0xab, 0xcd), "pasted").unwrap();
+        assert_eq!((k.psarc, k.sng), (Some([0xab; 32]), Some([0xcd; 32])));
+        let json = fake_json(0xab, 0xcd);
+        let bare = json.trim_start_matches('{').trim_end_matches('}');
+        assert!(keys_from_text(bare, "pasted").unwrap().same_keys(&k));
+        let back = keys_from_text(&keys_to_json(&k), "written").unwrap();
+        assert!(back.same_keys(&k));
+        assert!(keys_from_text(r#"{"psarc_key": "abcd"}"#, "pasted").is_err());
+        assert!(keys_from_text("not json at all", "pasted").is_err());
     }
 
     #[test]

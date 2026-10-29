@@ -129,6 +129,10 @@ fn steam_libraries() -> Vec<PathBuf> {
     if let Ok(pf) = std::env::var("ProgramFiles(x86)") {
         roots.push(PathBuf::from(pf).join("Steam"));
     }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Library/Application Support/Steam"));
+    }
     let mut out = Vec::new();
     for r in roots {
         let vdf = r.join("steamapps").join("libraryfolders.vdf");

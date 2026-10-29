@@ -17,3 +17,4 @@ userdata.json
 
 # Claude Code (agent worktrees, local settings)
 /.claude/
+/target-dev

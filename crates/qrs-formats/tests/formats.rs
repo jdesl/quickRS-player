@@ -618,3 +618,86 @@ fn feedpak_jsonc_ladder_and_unsafe_paths() {
     // no stem file on disk: no song stem
     assert!(pkg.feedpak().unwrap().song_stem().is_none());
 }
+
+// --- high-density chords and the highway's density (for the 3D highway) ---------------------------------------
+#[test]
+fn high_density_chords_from_sng_and_xml() {
+    // the demo's G chord marked as a repeat
+    let mut spec = demo_spec();
+    let g = spec.levels[1].1.iter_mut().find(|n| n.chord_id == 1).unwrap();
+    g.mask |= sng::MASK_HIGH_DENSITY;
+    let arr = sng_to_arrangement(&parse_sng(&build_sng_plain(&spec)).unwrap(), &meta("Lead"), 1.0).unwrap();
+    assert_eq!(
+        arr.chords.iter().map(|c| c.high_density).collect::<Vec<_>>(),
+        vec![false, true]
+    );
+    assert_eq!(arr.chords[1].to_json()["high_density"], true);
+    assert!(arr.chords[0].to_json().get("high_density").is_none());
+    let xml = demo_xml().replace(
+        r#"<chord time="4.000" chordId="1" fretHandMute="1" />"#,
+        r#"<chord time="4.000" chordId="1" fretHandMute="1" highDensity="1" />"#,
+    );
+    let arr = parse_xml(xml.as_bytes(), 1.0).unwrap();
+    assert!(!arr.chords[0].high_density && arr.chords[1].high_density);
+}
+
+#[test]
+fn visual_density_from_the_manifest_and_rocksmiths_ladder() {
+    let dir = tempfile::tempdir().unwrap();
+    let song = write_tmp(dir.path(), "demo_p.psarc", &demo_psarc(Some(&TEST_PSARC_KEY)));
+    let arr = load_arrangement(&song, Some("lead"), &test_keys()).unwrap();
+    assert_eq!(arr.visual_density, vec![5.0, 2.0]);
+    assert_eq!(
+        (arr.visual_density_at(0.0), arr.visual_density_at(1.0)),
+        (5.0, 2.0)
+    );
+    // none given: Rocksmith's ladder, 5.0 at the easiest down to 1.3 at full difficulty
+    let plain = Arrangement::new("Lead");
+    assert_eq!(
+        (plain.visual_density_at(0.0), plain.visual_density_at(1.0)),
+        (5.0, 1.3)
+    );
+    let mid = plain.visual_density_at(0.5);
+    assert!(mid > 2.4 && mid < 2.7, "{mid}"); // 5 * (1.3 / 5) ^ 0.5 = 2.55
+}
+
+#[test]
+fn phrase_starts_from_sng_and_xml() {
+    // the demo chart's three phrase iterations: COUNT at 0, riff at 1, END at 5
+    assert_eq!(demo_arrangement().phrases, vec![0.0, 1.0, 5.0]);
+    assert_eq!(
+        parse_xml(demo_xml().as_bytes(), 1.0).unwrap().phrases,
+        vec![0.0, 1.0, 5.0]
+    );
+}
+
+/// A separated pack (spec §5.3): the mixer gets every stem but `full`, with their names and defaults; `full` is
+/// kept apart (played as is while the mix is the pack's own).
+#[test]
+fn feedpak_stems_for_the_mixer() {
+    let mut pkg = Package::open(fixtures().join("extended.feedpak"), &Keys::default(), None).unwrap();
+    let fp = pkg.feedpak().unwrap();
+    let stems = fp.mix_stems();
+    let got: Vec<(&str, &str, bool)> = stems
+        .iter()
+        .map(|s| (s.id.as_str(), s.name.as_str(), s.default))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("guitar", "Guitar", true),
+            ("drums", "drums", true),
+            ("vocals", "vocals", true),
+            ("click", "Click", false)
+        ]
+    );
+    assert_eq!(fp.full_stem().as_deref(), Some("stems/full.ogg"));
+    let (audio, full) = qrs_formats::song_audio::song_stems(&mut pkg).unwrap().unwrap();
+    assert_eq!(audio.len(), 4);
+    assert_eq!(audio[0].audio.origin, "stems/guitar.ogg");
+    assert!(full.is_some());
+    // a one-stem pack has nothing to mix
+    let mut one = Package::open(fixtures().join("minimal.feedpak"), &Keys::default(), None).unwrap();
+    assert!(one.feedpak().unwrap().mix_stems().is_empty());
+    assert!(qrs_formats::song_audio::song_stems(&mut one).unwrap().is_none());
+}

@@ -23,11 +23,11 @@ use crate::library::{
 use crate::state::AppState;
 
 pub const SECTIONS: [(&str, &str); 5] = [
-    ("audio", "Audio"),
-    ("tone", "Guitar tone"),
+    ("audio", "Audio input / output"),
+    ("tone", "Raw guitar tone"),
     ("display", "Display"),
     ("practice", "Practice"),
-    ("library", "Library"),
+    ("library", "Directories"),
 ];
 
 fn local(t: f64) -> Option<chrono::DateTime<Local>> {
@@ -75,12 +75,40 @@ pub fn fmt_when(at: Option<f64>, year: bool) -> String {
     )
 }
 
+/// What Home shows from the library: the last 8 played and the shelf under Carry on, with its title.
+#[derive(Clone)]
+struct Shelves {
+    recent: Vec<usize>,
+    shelf: Vec<usize>,
+    title: String,
+}
+
 #[derive(Default)]
 pub struct HomeView {
     pub reqs: Vec<Req>,
+    /// `Shelves` as of (the library's and the user data's versions, the day): working them out goes through every
+    /// row (2-5 ms with ~3000), too much for every frame.
+    shelves: Option<((u64, i32), Shelves)>,
 }
 
 impl HomeView {
+    fn shelves(&mut self, st: &AppState) -> Shelves {
+        let key = (
+            st.version.wrapping_mul(1_000_003) ^ st.userdata.version,
+            Local::now().num_days_from_ce(),
+        );
+        if let Some((k, s)) = &self.shelves
+            && *k == key
+        {
+            return s.clone();
+        }
+        let recent = Self::recent(st, 8);
+        let (shelf, title) = Self::shelf(st, &recent);
+        let s = Shelves { recent, shelf, title };
+        self.shelves = Some((key, s.clone()));
+        s
+    }
+
     /// Rows by when they were last played, newest first.
     fn recent(st: &AppState, n: usize) -> Vec<usize> {
         let mut v: Vec<(f64, usize)> = (0..st.groups.len())
@@ -152,7 +180,7 @@ impl HomeView {
                 modifiers,
                 ..
             } => {
-                let recent = Self::recent(st, 1);
+                let recent = self.shelves(st).recent;
                 match key {
                     Key::Enter | Key::Space if !recent.is_empty() => self.play(lv, st, recent[0]),
                     Key::L | Key::Tab => {
@@ -163,6 +191,7 @@ impl HomeView {
                     }
                     Key::Enter => lv.go(st, View::All),
                     Key::F if modifiers.command => lv.go(st, View::All),
+                    Key::A if !modifiers.command => self.reqs.push(Req::Room),
                     Key::P if !recent.is_empty() => {
                         lv.go(st, View::All);
                         lv.open_picker(st, recent[0]);
@@ -214,13 +243,14 @@ impl HomeView {
             &p,
             boxr,
             "",
-            &format!("Search {} songs", group_digits(total)),
+            &format!("Search {}", songs(total)),
             &["Ctrl", "F"],
+            (false, false),
         );
         if interact(ui, boxr, "home-search", Sense::click()).clicked() {
             lv.go(st, View::All);
         }
-        let recent = Self::recent(st, 8);
+        let Shelves { recent, shelf, title } = self.shelves(st);
         let strip = Rect::from_min_size(
             pos2(main.min.x, main.max.y - px(72.0)),
             vec2(main.width(), px(72.0)),
@@ -239,7 +269,6 @@ impl HomeView {
             pos2(main.min.x, low_y),
             vec2(main.width(), strip.min.y - px(24.0) - low_y),
         );
-        let (shelf, title) = Self::shelf(st, &recent);
         self.draw_recent(ui, lv, st, low, &shelf, &title);
     }
 
@@ -539,6 +568,24 @@ impl HomeView {
         {
             lv.go(st, View::All);
         }
+        // the first-time setup again (P23.14; the getting-started welcome's place, P20.2)
+        let g = Rect::from_min_size(pos2(b.max.x + px(14.0), b.min.y), vec2(px(220.0), px(52.0)));
+        if button(
+            ui,
+            g,
+            "home-welcome",
+            "Set up quickRS",
+            "",
+            ButtonStyle {
+                size: 16.0,
+                r: Some(16.0),
+                ..Default::default()
+            },
+        )
+        .clicked()
+        {
+            self.reqs.push(Req::Setup);
+        }
     }
 
     /// One row of covers, each on a raised frame, with title, artist and your best under it.
@@ -710,6 +757,7 @@ impl HomeView {
                     qrs_audio::tone::ToneSpec::AsIs => "As is".to_string(),
                     qrs_audio::tone::ToneSpec::Preset { preset } => preset.label().to_string(),
                     qrs_audio::tone::ToneSpec::Custom { .. } => "Custom".to_string(),
+                    qrs_audio::tone::ToneSpec::Board { .. } => "Pedalboard".to_string(),
                 };
                 if a.engine.monitor() {
                     label
@@ -739,8 +787,8 @@ impl HomeView {
         );
         let n = st.dirs.len();
         let library = format!(
-            "{} songs  ·  {n} folder{}",
-            group_digits(st.groups.len()),
+            "{}  ·  {n} folder{}",
+            songs(st.groups.len()),
             if n == 1 { "" } else { "s" }
         );
         vec![audio, tone, display, practice, library]
@@ -752,6 +800,19 @@ impl HomeView {
         let th = t();
         paint::raised(&p, r, Some(22.0), 6.0, Fill::Base, 0.0);
         let rcy = centery(r);
+        // "Settings F2" opens the settings as F2 does
+        let head = Rect::from_min_max(
+            pos2(r.min.x + px(10.0), r.min.y + px(10.0)),
+            pos2(r.min.x + px(138.0), r.max.y - px(10.0)),
+        );
+        let hresp = interact(ui, head, "home-set-head", Sense::click());
+        if hresp.hovered() {
+            paint::raised(&p, head, Some(14.0), 3.0, Fill::Base, 0.0);
+            st.ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if hresp.clicked() {
+            self.reqs.push(Req::Settings("audio"));
+        }
         let tr = txt(
             &p,
             "Settings",
@@ -772,9 +833,15 @@ impl HomeView {
         );
         let x0 = r.min.x + px(142.0);
         let sums = self.summaries(st);
+        // no TONE: the tone is the amp room's (its button is at the sidebar's foot)
+        let cells: Vec<(usize, &(&str, &str))> = SECTIONS
+            .iter()
+            .enumerate()
+            .filter(|(_, (k, _))| *k != "tone")
+            .collect();
         // each cell's width in pixels, not whole: the cells start at int(x0 + i * w) and are int(w) wide
-        let w = (ipx(r.max.x - px(10.0)) - ipx(x0)) / SECTIONS.len() as f64;
-        for (i, (key, label)) in SECTIONS.iter().enumerate() {
+        let w = (ipx(r.max.x - px(10.0)) - ipx(x0)) / cells.len() as f64;
+        for (i, (si, (key, label))) in cells.into_iter().enumerate() {
             let cell = Rect::from_min_size(
                 pos2(trunc_px(ipx(x0) + i as f64 * w), r.min.y + px(10.0)),
                 vec2(trunc_px(w), r.height() - px(20.0)),
@@ -808,7 +875,7 @@ impl HomeView {
             );
             txt(
                 &p,
-                &sums[i],
+                &sums[si],
                 pos2(cell.min.x + px(14.0), ccy + px(1.0)),
                 13.0,
                 th.text_2,
@@ -824,6 +891,11 @@ impl HomeView {
 }
 
 /// 1588 -> "1,588"
+/// "1 song", "1,234 songs".
+pub fn songs(n: usize) -> String {
+    format!("{} song{}", group_digits(n), if n == 1 { "" } else { "s" })
+}
+
 pub fn group_digits(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();

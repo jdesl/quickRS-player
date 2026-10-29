@@ -12,7 +12,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Instant;
 
 use eframe::egui;
-use egui::{Align2, Color32, CursorIcon, Mesh, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2};
+use egui::{
+    Align2, Color32, CursorIcon, Mesh, Painter, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, pos2,
+};
 use qrs_formats::Techs;
 use qrs_formats::ascii_tab::section_label;
 use qrs_ui::Mat;
@@ -27,7 +29,7 @@ use qrs_ui::widgets::{self, ButtonStyle, RoundKind, interact};
 use super::{Chart, Glyph};
 
 /// How far the loop's bars are tinted towards the accent, and the Ctrl-drag selection.
-pub const LOOP_WASH: f32 = 0.05;
+pub const LOOP_WASH: f32 = 0.08;
 pub const SEL_WASH: f32 = 0.08;
 /// Seconds of playback after you scroll away before the page follows the cursor again.
 const RELOCK_AFTER: f32 = 4.0;
@@ -495,10 +497,21 @@ pub struct TabCtx<'a> {
     pub sel_track: bool,
     pub track_ok: bool,
     pub selection_speed: f64,
+    /// Ear mode (P13.1): which of the chart's glyphs show (the rest, their chord names and the rhythm are hidden;
+    /// the rows keep their layout, so nothing moves when it's switched).
+    pub ear: Option<&'a [bool]>,
+    /// Note by note (P15.3): the scorer group the song waits at, its breath (0..1) and a wrong note's flash (0..1).
+    pub held: Option<(usize, f32, f32)>,
 }
 
 pub struct TabView {
     pub zoom: f32,
+    /// On top of the zoom (owner request): how wide the bars are, and how far apart the strings (1 = as the zoom has
+    /// them), so the page needn't keep one shape.
+    pub width_k: f32,
+    pub height_k: f32,
+    /// Compact rows (owner request): less room above and below each staff and closer strings, so more rows fit.
+    pub compact: bool,
     /// How far the page is scrolled (points; kept from `scroll_px`, and taken up again if changed).
     pub scroll: f32,
     /// The page tracks the cursor until you scroll away; the lock key brings it back.
@@ -514,6 +527,8 @@ pub struct TabView {
     max_scroll_px: f64,
     idle: f32,
     last: Instant,
+    /// The selection's play position at the last draw (its loop going round shows as a step back).
+    synth_last: Option<f64>,
     /// (pointer y, scroll) when the scrollbar's thumb was grabbed (pixels).
     drag: Option<(f64, f64)>,
     /// Ctrl-drag selection (chart seconds), played by the synth.
@@ -525,7 +540,7 @@ pub struct TabView {
     /// The well's inside, where rows are drawn (clipped), and the screen y of the first row at scroll 0.
     region: PRect,
     top: f64,
-    key: Option<(u64, u64, u64, u64, u32, u32, u64)>,
+    key: Option<(u64, u64, u64, u64, u32, u32, u64, (u32, u32))>,
     pub measures: Vec<Measure>,
     mstarts: Vec<f64>,
     rows: Vec<Vec<usize>>,
@@ -535,6 +550,8 @@ pub struct TabView {
     line_gap: f64,
     staff_h: f64,
     top_m: f64,
+    /// How far above the top string the current bar's band starts (its bar number inside it).
+    band_m: f64,
     row_h: f64,
     pad: f64,
     note_k: f64,
@@ -547,6 +564,9 @@ impl Default for TabView {
     fn default() -> Self {
         TabView {
             zoom: 1.0,
+            width_k: 1.0,
+            height_k: 1.0,
+            compact: false,
             scroll: 0.0,
             follow: true,
             jump: false,
@@ -556,6 +576,7 @@ impl Default for TabView {
             max_scroll_px: 0.0,
             idle: 0.0,
             last: Instant::now(),
+            synth_last: None,
             drag: None,
             sel: None,
             sel_anchor: None,
@@ -573,6 +594,7 @@ impl Default for TabView {
             line_gap: 22.0,
             staff_h: 110.0,
             top_m: 72.0,
+            band_m: 30.0,
             row_h: 200.0,
             pad: 12.0,
             note_k: 1.0,
@@ -618,6 +640,16 @@ fn button_w(ctx: &egui::Context, label: &str, key: &str, size: f32, icon: bool) 
 }
 
 impl TabView {
+    /// A tab with its bars' width, its strings' spacing and compact rows as the owner left them.
+    pub fn shaped(width_k: f32, height_k: f32, compact: bool) -> TabView {
+        TabView {
+            width_k,
+            height_k,
+            compact,
+            ..TabView::default()
+        }
+    }
+
     /// Let go of a drag or a selection being made (a panel opens over the tab).
     pub fn cancel_drags(&mut self) {
         self.drag = None;
@@ -634,7 +666,7 @@ impl TabView {
         }
     }
 
-    fn measures_of(chart: &Chart) -> Vec<Measure> {
+    pub(crate) fn measures_of(chart: &Chart) -> Vec<Measure> {
         let downs: Vec<&qrs_formats::model::Beat> = chart.beats.iter().filter(|b| b.is_downbeat()).collect();
         let end = chart
             .length
@@ -713,31 +745,41 @@ impl TabView {
             content.w.to_bits(),
             s.to_bits(),
             self.zoom.to_bits(),
-            (c.notation as u32) | (c.snap as u32) << 1,
+            (c.notation as u32) | (c.snap as u32) << 1 | (self.compact as u32) << 2,
             chart.rhythm_id,
+            (self.width_k.to_bits(), self.height_k.to_bits()),
         );
         if self.key == Some(key) {
             return;
         }
         self.key = Some(key);
         let zoom = self.zoom as f64;
+        // the bars' width and the strings' spacing can each be stretched on top of the zoom
+        let wzoom = zoom * self.width_k as f64;
+        let hk = self.height_k as f64 * if self.compact { 0.8 } else { 1.0 };
         self.names_x = content.x + ipx(12.0); // string names, centred in the margin
         self.left = content.x + ipx(40.0);
         self.row_w = content.right() - self.left - ipx(6.0);
-        self.line_gap = (22.0 * s * zoom.clamp(0.8, 1.3)).trunc();
+        self.line_gap = (22.0 * s * zoom.clamp(0.8, 1.3) * hk).trunc();
         self.staff_h = self.line_gap * (chart.n_strings.max(1) - 1) as f64;
         // above the staff, top down: section labels, chord names, then a line of its own for the bar numbers
-        self.top_m = ipx(72.0);
+        // (compact: the section labels share the chord names' line, and the margins are tighter)
+        self.top_m = ipx(if self.compact { 46.0 } else { 72.0 });
+        self.band_m = ipx(if self.compact { 26.0 } else { 30.0 });
         let lane_h = if c.notation && chart.rhythm.is_some() {
-            ipx(46.0)
+            ipx(if self.compact { 40.0 } else { 46.0 })
         } else {
             0.0
         };
-        let bot_m = ipx(26.0) + lane_h;
+        let bot_m = ipx(if self.compact { 18.0 } else { 26.0 }) + lane_h;
         self.row_h = self.top_m + self.staff_h + bot_m;
         self.pad = ipx(12.0);
         // the fret numbers (on chips) shrink a little when zoomed out, with the strings (never below 80%)
         self.note_k = zoom.clamp(0.8, 1.0);
+        if (22.0 * s * self.note_k).trunc() > self.line_gap {
+            // strings closer than the chips are tall: the chips shrink to fit between them
+            self.note_k = (self.line_gap / (22.0 * s)).max(0.6);
+        }
         self.fret_size = (15.0 * self.note_k).round_ties_even() as f32;
         self.chip_h = (22.0 * s * self.note_k).trunc();
         self.chip_pad = (10.0 * s * self.note_k).trunc();
@@ -751,8 +793,8 @@ impl TabView {
             chip_ws.insert(k, w);
             w
         };
-        let beat_px = 34.0 * s * zoom;
-        let min_px = 26.0 * s * zoom;
+        let beat_px = 34.0 * s * wzoom;
+        let min_px = 26.0 * s * wzoom;
         let mut times: Vec<f64> = chart.gtimes.iter().map(|&t| r3(t)).collect();
         times.sort_by(f64::total_cmp);
         times.dedup();
@@ -778,7 +820,7 @@ impl TabView {
             );
             let ts = &times[i0..i1.max(i0)];
             if ts.is_empty() {
-                m.w = (40.0 * s).max(m.beats as f64 * 16.0 * s * zoom);
+                m.w = (40.0 * s).max(m.beats as f64 * 16.0 * s * wzoom);
                 continue;
             }
             let span = m.end - m.start;
@@ -866,6 +908,59 @@ impl TabView {
             return None;
         }
         Some(&self.measures[self.measure_index(time).min(self.measures.len() - 1)])
+    }
+
+    /// Where a chart time is on the screen (P17.3, a lesson's callout flags): its x, and the top and bottom of its
+    /// bar's band (points), when its row is in view.
+    pub fn screen_at(&self, time: f64) -> Option<(f32, f32, f32)> {
+        let m = self.measure_at(time)?;
+        let x = self.x_of(time, Some(m));
+        let y0 = self.top + self.row_top(m.row) - self.scroll_px + self.top_m;
+        let (top, bottom) = (y0 - self.band_m, y0 + self.staff_h);
+        if bottom < self.region.y || top > self.region.bottom() {
+            return None;
+        }
+        Some((pt(x), pt(top), pt(bottom)))
+    }
+
+    /// Where a note at a chart time on a string is drawn (points; P17.11, a take's "your tab" marks), when its row is
+    /// in view. `time` as the page places it (`TabView::tt`).
+    pub fn note_pos(&self, time: f64, string: i32, n_strings: usize) -> Option<Pos2> {
+        let m = self.measure_at(time)?;
+        let x = self.x_of(time, Some(m));
+        let y0 = self.top + self.row_top(m.row) - self.scroll_px + self.top_m;
+        let n = n_strings.max(1) as i32;
+        let y = y0 + (n - 1 - string.clamp(0, n - 1)) as f64 * self.line_gap;
+        if y < self.region.y || y > self.region.bottom() {
+            return None;
+        }
+        Some(pos2(pt(x), pt(y)))
+    }
+
+    /// The bands of the bars that start in [t0, t1) that are in view (points; P17.13, "new here" bars).
+    pub fn bar_bands(&self, t0: f64, t1: f64) -> Vec<Rect> {
+        let mut out = Vec::new();
+        for m in self
+            .measures
+            .iter()
+            .filter(|m| m.start >= t0 - 0.01 && m.start < t1 - 0.01)
+        {
+            let y0 = self.top + self.row_top(m.row) - self.scroll_px + self.top_m;
+            let (top, bottom) = (y0 - self.band_m, y0 + self.staff_h);
+            if bottom < self.region.y || top > self.region.bottom() {
+                continue;
+            }
+            out.push(Rect::from_min_max(
+                pos2(pt(m.x), pt(top)),
+                pos2(pt(m.x + m.w), pt(bottom)),
+            ));
+        }
+        out
+    }
+
+    /// The well's inside, where the rows are drawn (points).
+    pub fn view_rect(&self) -> Rect {
+        self.region.rect()
     }
 
     /// Where a chart time sits across the page (pixels).
@@ -1145,13 +1240,23 @@ impl TabView {
             return acts;
         }
         let now = c.now;
-        let cur_i = self.measure_index(now).min(self.measures.len() - 1);
+        // the page follows what's playing: a selection (synth or the song's track, the song paused under it) as the
+        // song itself; its loop going round brings the page back as the song's loop does (a seek)
+        let lead = c.synth_t.unwrap_or(now);
+        if let (Some(t), Some(before)) = (c.synth_t, self.synth_last)
+            && t < before - 0.25
+        {
+            self.follow = true;
+        }
+        self.synth_last = c.synth_t;
+        let cur_i = self.measure_index(lead).min(self.measures.len() - 1);
         let cur = self.measures[cur_i].clone();
-        // follow the cursor: keep its row in the upper third of the view (pixels)
-        let target = (self.row_top(cur.row) - (self.row_h * 0.9).min(region.h * 0.3)).max(0.0);
+        // follow the cursor: its row near the top of the view, with just the end of the row before above it, since
+        // what's coming matters more than what's been played (owner request; the Python app kept it a third down)
+        let target = (self.row_top(cur.row) - (self.row_h * 0.3).min(region.h * 0.12)).max(0.0);
         let dt = self.last.elapsed().as_secs_f32();
         self.last = Instant::now();
-        if !self.follow && self.drag.is_none() && c.playing {
+        if !self.follow && self.drag.is_none() && (c.playing || c.synth_t.is_some()) {
             // a long gap between draws (another view was showing) isn't playback
             self.idle += dt.min(0.1);
             if self.idle >= RELOCK_AFTER {
@@ -1168,6 +1273,10 @@ impl TabView {
         }
         if self.follow {
             let before = self.scroll_px;
+            if (target - self.scroll_px).abs() > region.h * 0.75 {
+                // far away (a long loop going round, a seek): straight there, not a slide through every row
+                self.scroll_px = target;
+            }
             self.scroll_px += (target - self.scroll_px) * (dt as f64 * 6.0).min(1.0);
             if (self.scroll_px - before).abs() > 0.05 {
                 ctx.request_repaint();
@@ -1248,7 +1357,7 @@ impl TabView {
             let last_m = &self.measures[*row.last().unwrap()];
             let x1 = last_m.x + last_m.w;
             // the current bar's band: from its number to just below the bottom string
-            let band_top = y0 - ipx(30.0);
+            let band_top = y0 - self.band_m;
             let band_h = y0 + self.staff_h + (gap * 0.45).max(self.chip_h / 2.0 + 2.0 * s) - band_top;
             let ys = |st: i32| y0 + (n_strings - 1 - st) as f64 * gap;
             for &mi in row {
@@ -1356,7 +1465,7 @@ impl TabView {
                         &pc,
                         &m.number.to_string(),
                         m.x + ipx(6.0),
-                        y0 - ipx(14.0),
+                        y0 - ipx(if self.compact { 11.0 } else { 14.0 }),
                         Align2::LEFT_BOTTOM,
                         Style::new(12.0, 700, th.caption),
                         None,
@@ -1366,6 +1475,7 @@ impl TabView {
             bars.line((int_(x1), y0), (int_(x1), y0 + self.staff_h), lw);
             bars.draw(&pc, th.bar_line);
             let (r_start, r_end) = (self.measures[row[0]].start, last_m.end);
+            let mut pills: Vec<PRect> = Vec::new();
             for sec in &chart.sections {
                 // section names on small sunken labels at the top of the row
                 if r_start <= sec.start && sec.start < r_end {
@@ -1378,6 +1488,7 @@ impl TabView {
                         h: ipx(20.0),
                     };
                     paint::inset(&pc, pill.rect(), Some(7.0), 2.0, Fill::Base);
+                    pills.push(pill);
                     put(
                         &pc,
                         &label,
@@ -1396,16 +1507,31 @@ impl TabView {
             );
             let mut last_name: Option<&str> = None;
             let mut last_x = -1e9f64;
-            for ch in &chart.chords[c0..c1.max(c0)] {
-                let cx = self.x_of(Self::tt(chart, c.snap, ch.time), None);
+            let chords = if c.ear.is_some() {
+                &chart.chords[0..0] // (ear mode: a chord's name gives it away)
+            } else {
+                &chart.chords[c0..c1.max(c0)]
+            };
+            let chord_st = Style::new(13.0, 800, th.accent_ink);
+            for ch in chords {
+                let mut cx = self.x_of(Self::tt(chart, c.snap, ch.time), None);
                 if !ch.name.is_empty() && (last_name != Some(ch.name.as_str()) || cx - last_x > 160.0 * s) {
+                    if self.compact {
+                        // (the section labels are on this line too: a name that would sit on one goes after it)
+                        let half = tw(&ctx, &ch.name, chord_st) / 2.0;
+                        for pl in &pills {
+                            if cx + half > pl.x && cx - half < pl.right() {
+                                cx = pl.right() + ipx(6.0) + half;
+                            }
+                        }
+                    }
                     put(
                         &pc,
                         &ch.name,
                         cx,
                         band_top - ipx(1.0),
                         Align2::CENTER_BOTTOM,
-                        Style::new(13.0, 800, th.accent_ink),
+                        chord_st,
                         None,
                     );
                     last_name = Some(ch.name.as_str());
@@ -1456,7 +1582,12 @@ impl TabView {
             let mut pm_runs: Vec<f64> = Vec::new();
             // each string's note before: (time, its chip's right edge)
             let mut before: HashMap<i32, (f64, f64)> = HashMap::new();
-            for g in &chart.glyphs[g0..g1.max(g0)] {
+            for (gi, g) in chart.glyphs[g0..g1.max(g0)].iter().enumerate() {
+                if let Some(shown) = c.ear
+                    && !shown.get(g0 + gi).copied().unwrap_or(false)
+                {
+                    continue; // ear mode: not found yet
+                }
                 let x = self.x_of(Self::tt(chart, c.snap, g.t), None);
                 let y = ys(g.string);
                 let state = g.group.and_then(|i| c.states.get(i).copied().flatten());
@@ -1551,6 +1682,27 @@ impl TabView {
                         false,
                     );
                 }
+                if let Some((hg, swell, wrong)) = c.held
+                    && g.group == Some(hg)
+                {
+                    // note by note: the note the song waits at breathes; a wrong one flashes it red
+                    let r = bx.rect();
+                    let k = self.note_k as f32;
+                    pc.rect_stroke(
+                        r.expand((2.0 + 5.0 * swell) * k),
+                        r.height() / 2.0 + (2.0 + 5.0 * swell) * k,
+                        Stroke::new(1.5, th.accent.gamma_multiply(1.0 - 0.75 * swell)),
+                        StrokeKind::Outside,
+                    );
+                    if wrong > 0.0 {
+                        pc.rect_stroke(
+                            r.expand(1.0),
+                            r.height() / 2.0 + 1.0,
+                            Stroke::new(2.5, th.miss.gamma_multiply(wrong)),
+                            StrokeKind::Outside,
+                        );
+                    }
+                }
                 if g.tech.has(Techs::PALM_MUTE) {
                     pm_runs.push(x);
                 }
@@ -1587,7 +1739,7 @@ impl TabView {
                     }
                 }
             }
-            if c.notation {
+            if c.notation && c.ear.is_none() {
                 self.draw_rhythm(&pc, c, y0 + self.staff_h + ipx(10.0), r_start, r_end);
             }
         }
@@ -1597,7 +1749,7 @@ impl TabView {
     }
 
     /// A floating toolbar under the selection: what it plays from (an abalone key: a sine wave for the synth
-    /// guitar, a waveform for the song's own track), then Play or Stop, Loop, Slow and x in tortoiseshell; and a
+    /// guitar, a waveform for the song's own track), then Play or Stop, Loop, Slow, Save lick and x as grey wells (owner request); and a
     /// caption saying what's selected.
     fn draw_sel_buttons(&mut self, ui: &Ui, c: &TabCtx, well: PRect) -> Vec<TabAct> {
         let mut acts = Vec::new();
@@ -1623,7 +1775,7 @@ impl TabView {
         } else {
             "Slow".to_string()
         };
-        let items: [(&str, &str, &'static str, f64); 5] = [
+        let items: [(&str, &str, &'static str, f64); 6] = [
             ("", "", "sel_source", bh),
             (
                 play,
@@ -1644,6 +1796,13 @@ impl TabView {
                 "S",
                 "sel_slow",
                 button_w(&ctx, "Slow 70%", "S", 14.0, false) + ipx(18.0),
+            ),
+            // save the selection as a lick (the Saved licks page)
+            (
+                "Save lick",
+                "Ctrl+S",
+                "lick_sel",
+                button_w(&ctx, "Save lick", "Ctrl+S", 14.0, false),
             ),
             ("", "", "sel_clear", bh),
         ];
@@ -1693,7 +1852,7 @@ impl TabView {
             let st = ButtonStyle {
                 size: 14.0,
                 r: Some(13.0),
-                mat: Some(Mat::Tortoise),
+                sunk: true,
                 seed: i as u32,
                 ..Default::default()
             };
@@ -1708,6 +1867,7 @@ impl TabView {
                         ButtonStyle {
                             size: 13.0,
                             mat: Some(Mat::Abalone),
+                            sunk: false,
                             icon: Some(if track { Icon::Track } else { Icon::Synth }),
                             icon_size: 22.0,
                             enabled: c.track_ok,
@@ -1760,6 +1920,7 @@ impl TabView {
                     key,
                     ButtonStyle { active: slow, ..st },
                 ),
+                "lick_sel" => widgets::button(ui, r.rect(), "sel-lick", label, key, st),
                 _ => widgets::button(
                     ui,
                     r.rect(),
@@ -2054,5 +2215,135 @@ mod tests {
         let i = r.inflate(-11.0, -10.0);
         assert_eq!((i.x, i.y, i.w, i.h), (33.0, 148.0, 949.0, 623.0));
         assert_eq!(r.centerx(), 508.0);
+    }
+
+    /// A Ctrl-selected stretch playing (the synth or the song's track, the song paused at its start): the page
+    /// follows it down, as it follows the song, and comes back up when its loop goes round.
+    #[test]
+    fn the_page_follows_a_playing_selection() {
+        use qrs_formats::{Arrangement, Note};
+        let mut arr = Arrangement::new("Lead");
+        arr.song_length = 120.0;
+        arr.notes = (0..230)
+            .map(|i| Note::new(1.0 + i as f64 * 0.5, i % 6, 3))
+            .collect();
+        let nota = crate::player::Nota {
+            show: false,
+            snap: false,
+            rests: true,
+            beams: true,
+            triplets: true,
+        };
+        let chart = Chart::new(arr, 120.0, &nota);
+        let ctx = egui::Context::default();
+        qrs_ui::text::install(&ctx);
+        let mut tv = TabView::default();
+        let draw = |tv: &mut TabView, synth_t: Option<f64>| {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                let c = TabCtx {
+                    chart: &chart,
+                    states: &[],
+                    now: 1.0,
+                    loop_ab: None,
+                    synth_t,
+                    synth_state: qrs_audio::synth::SynthState::Playing,
+                    playing: false,
+                    notation: false,
+                    snap: false,
+                    beams: true,
+                    sel_loop: true,
+                    sel_slow: 1.0,
+                    sel_track: false,
+                    track_ok: false,
+                    selection_speed: 1.0,
+                    ear: None,
+                    held: None,
+                };
+                let well = Rect::from_min_size(egui::pos2(28.0, 143.0), egui::vec2(960.0, 400.0));
+                let groove = Rect::from_min_size(egui::pos2(1002.0, 143.0), egui::vec2(10.0, 400.0));
+                tv.ui(ui, &c, well, groove);
+            });
+            out.textures_delta.clear();
+        };
+        draw(&mut tv, None);
+        let top = tv.scroll;
+        draw(&mut tv, Some(80.0));
+        let down = tv.scroll;
+        assert!(down > top + 100.0, "the page stayed at {top} → {down}");
+        // scrolled away, then the loop goes round to its start: the page comes back with it
+        tv.wheel(3.0);
+        draw(&mut tv, Some(90.0));
+        draw(&mut tv, Some(20.0));
+        assert!(
+            tv.follow && tv.scroll < down,
+            "after the loop went round: {}",
+            tv.scroll
+        );
+    }
+
+    #[test]
+    fn the_tabs_shape_bends_without_the_zoom() {
+        use qrs_formats::{Arrangement, Note};
+        let mut arr = Arrangement::new("Lead");
+        arr.song_length = 60.0;
+        arr.notes = (0..110)
+            .map(|i| Note::new(1.0 + i as f64 * 0.5, i % 6, 3))
+            .collect();
+        let nota = crate::player::Nota {
+            show: true,
+            snap: false,
+            rests: true,
+            beams: true,
+            triplets: true,
+        };
+        let chart = Chart::new(arr, 60.0, &nota);
+        let ctx = egui::Context::default();
+        ctx.begin_pass(Default::default());
+        let out = {
+            let ctx = &ctx;
+            let content = PRect::new(40.0, 40.0, 900.0, 600.0);
+            let layout = |tv: &mut TabView| {
+                let c = TabCtx {
+                    chart: &chart,
+                    states: &[],
+                    now: 0.0,
+                    loop_ab: None,
+                    synth_t: None,
+                    synth_state: qrs_audio::synth::SynthState::Idle,
+                    playing: false,
+                    notation: true,
+                    snap: false,
+                    beams: true,
+                    sel_loop: false,
+                    sel_slow: 1.0,
+                    sel_track: false,
+                    track_ok: false,
+                    selection_speed: 1.0,
+                    ear: None,
+                    held: None,
+                };
+                tv.layout(ctx, &c, content);
+                (tv.row_h, tv.line_gap, tv.rows.len(), tv.chip_h)
+            };
+            vec![
+                layout(&mut TabView::default()),
+                layout(&mut TabView::shaped(1.0, 1.0, true)),
+                layout(&mut TabView::shaped(0.6, 1.0, false)),
+                layout(&mut TabView::shaped(1.0, 1.5, false)),
+                layout(&mut TabView::shaped(1.0, 0.6, false)),
+            ]
+        };
+        ctx.end_pass().textures_delta.clear();
+        let [plain, compact, narrow, tall, close] = out[..] else {
+            panic!()
+        };
+        // compact: shorter rows, closer strings, the same bars to a row
+        assert!(compact.0 < plain.0 * 0.8 && compact.1 < plain.1 && compact.2 == plain.2);
+        // narrower bars: more to a row, the rows as tall
+        assert!(narrow.2 < plain.2 && narrow.0 == plain.0);
+        // the strings apart or closer: the bars as wide
+        assert!(tall.1 > plain.1 && tall.2 == plain.2 && close.1 < plain.1);
+        // strings closer than the chips are tall: the chips shrink to fit between them
+        assert!(close.3 <= close.1 && plain.3 == 22.0);
     }
 }

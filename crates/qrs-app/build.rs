@@ -1,5 +1,6 @@
 //! The Windows exe's resources: the app icon (Explorer, the taskbar, shortcuts) and its version information.
 
+#[cfg_attr(not(windows), allow(clippy::needless_return))] // the early return is only needless off Windows
 fn main() {
     println!("cargo:rerun-if-changed=../../assets/icons/rsplay.ico");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {

@@ -1,219 +1,112 @@
-quickRS Bristol 2026
-====================
+quickRS 0.3.0
+=============
 
-A song library and player for your Rocksmith 2014 songs, played with your real guitar. The tab scrolls with the
-song and your notes are scored as you play. You can loop a passage and slow it down without changing its pitch.
-
-You do NOT need to convert anything. quickRS plays your Rocksmith songs as they are, straight from Rocksmith's own
-folder. It only needs Rocksmith's two keys, in a file called keys.json next to quickrs.exe. You make that file
-once, in step 1. Converting to feedpaks (step 4) is optional.
+A practice player for your own Rocksmith 2014 songs, played with your real guitar: scrolling tab or a 3D
+highway, loops, slow-down, pitch shift, note by note, takes, a pedalboard and an amp room.
+Your notes are scored as you play, and R records what you hear.
 
 You need: Windows 10 or 11 (64-bit), your guitar (a Real Tone Cable, an audio interface, or a mic), and your own
-Rocksmith 2014 songs. quickRS comes with no songs and no Rocksmith files.
+Rocksmith 2014 songs. quickRS comes with no songs and no Rocksmith keys.
 
-There's no installer: this folder, the one with quickrs.exe in it, is quickRS. Below it's called "the quickRS
-folder". You can move the whole folder anywhere you like.
+There's no installer: this folder, the one with quickrs.exe in it, is quickRS ("the quickRS folder"). Keep it
+somewhere you can write to (Documents, Desktop, another drive), not in C:\Program Files, so it can update itself.
 
-Words used below:
-  - .psarc file: the kind of file Rocksmith keeps its songs in. Most hold one song. Some hold many: the game's own
-    songs.psarc has its 70 songs, and song packs hold several.
-  - dlc folder: the folder where Rocksmith keeps your .psarc files. It's called "dlc", and it's inside
-    Rocksmith's game folder, "Rocksmith2014". With Steam it's usually
-    C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc
-  - keys: two codes that unlock .psarc files. Step 1 explains them.
-  - F5, F2: keys on the top row of your keyboard. On some laptops you hold Fn while you press them.
-  - File name endings (.exe, .json, .txt): Windows often hides them. So quickrs.exe may show as just "quickrs",
-    and keys.example.json as "keys.example". That's normal.
+The full guide, with pictures, is at https://github.com/arpan2711/quickRS-player (the docs folder there).
+The Mac version (beta) is on the same page: see docs/INSTALL.md.
 
 
-1. Add Rocksmith's two keys
----------------------------
-Rocksmith's .psarc files are locked (encrypted). quickRS needs two keys to open them. About the keys:
-  - Their names are the "PSARC key" and the "SNG key for PC".
-  - Each one is a code 64 characters long, made only of the digits 0-9 and the letters A-F.
-  - They're the same in every copy of Rocksmith. They are NOT a licence key, and they have nothing to do with
-    your Steam account.
-  - quickRS can't include them. They're published in open-source Rocksmith modding tools.
-
-Find both keys first. Then make keys.json in the quickRS folder, next to quickrs.exe:
-
-  1. In the quickRS folder, right-click keys.example.json and choose Open with > Notepad.
-  2. Look at what's inside. It's two lines between { and }, like this (your example text is different):
-         {
-           "psarc_key": "<example text>",
-           "sng_key": "<example text>"
-         }
-  3. Copy the PSARC key from where you found it: select it and press Ctrl+C.
-  4. In Notepad, on the "psarc_key" line, select the example text, from < to >, both included. Don't select the
-     quotes around it.
-  5. Press Ctrl+V. The key takes the place of the example text.
-  6. Copy the SNG key for PC the same way: select it and press Ctrl+C.
-  7. In Notepad, on the "sng_key" line, select the example text, from < to >.
-  8. Press Ctrl+V.
-  9. Check both lines. Each key sits between its two quotes, on one line. There's no < or > left. The quotes,
-     the colons, and the comma at the end of the first line are still there. (A key written as 0x1A, 0x2B, ...
-     works too.)
-  10. Click File > Save as.
-  11. Check that the Save window is in the quickRS folder: its name (for example quickRS-0.1.0) shows at the
-      top. If it isn't, go to the quickRS folder.
-  12. In the "File name" box, delete what's there and type "keys.json" WITH the quotes. The quotes stop
-      Windows from adding .txt to the name.
-  13. Click Save.
-  14. Close Notepad.
-
-keys.json is now in the quickRS folder, next to quickrs.exe. Leave keys.example.json where it is.
-
-
-2. Plug in your guitar
-----------------------
-The Rocksmith Real Tone Cable works as it does in Rocksmith: plug it in and quickRS picks it.
-Other inputs work too: an audio interface or amp modeller (including its ASIO driver, or your RS_ASIO setup),
-or a microphone for an acoustic guitar.
-Settings (F2) > Audio shows what's picked and follows devices as you plug them in and out. Pick a device there
-to fix it. The guitar's channel is found from the first clear notes you play.
-
-
-3. Start quickRS
+1. Start quickRS
 ----------------
+  1. Double-click quickrs.exe.
+  2. Windows may warn about an unknown app, because the programs aren't signed. Click "More info", then
+     "Run anyway".
+  3. A short welcome shows three steps: your song folder, the keys, your guitar input. quickRS has already
+     looked for Rocksmith's dlc folder in your Steam libraries. Got it (Esc) closes the welcome; Settings (F2) >
+     Directories > Welcome guide opens it again.
+  4. A small card then offers "Set up your guitar?" once: it walks you through your input, output, level and
+     calibration in a couple of minutes (see section 4).
 
-  +----------------------------------------------------------------------------+
-  |  Already opened quickRS before adding the keys?                            |
-  |  Close it, open it again, then press F5.                                   |
-  +----------------------------------------------------------------------------+
-
-  quickRS reads keys.json only when it starts. Songs it saw without the keys stay marked "needs keys", even
-  after you open it again, until you press F5. F5 makes quickRS read your song folders again. F5 in a quickRS
-  window that was open while you made keys.json doesn't help: close it and open it first.
-  Never opened quickRS before making keys.json? Then you don't need F5.
-
-  1. If quickRS is open, close it.
-  2. In the quickRS folder, double-click quickrs.exe.
-  3. Windows may warn about an unknown app, because the programs aren't signed. If it does, click
-     "More info", then "Run anyway".
-  4. Wait for your song list. quickRS looks for your Rocksmith songs by itself, and lists the game's own songs
-     and your song packs too.
-  5. Did you open quickRS before you made keys.json? Then press F5 now. (Or click "Rescan" on the bar at the
-     bottom of the song list.) quickRS reads all your songs again. With a big library this can take up to a
-     minute.
-  6. Look at the songs on the first screen of your list, under each song's name. "needs keys" in red means
-     that song can't be opened yet: the keys aren't working. Those songs also show "?" instead of a tuning,
-     and 0:00 as their length. If you see it, go to "If something's not right" below.
-     If you don't, you're done. Pick a song and play.
-
-If you don't see your songs:
-  1. In File Explorer, open Rocksmith's game folder, Rocksmith2014 (with Steam it's usually
-     C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014). You'll see the dlc folder in it.
-  2. Drag the dlc folder onto the quickRS window. quickRS remembers it.
-  Settings (F2) > Library lists the folders quickRS reads.
-
-For a Desktop shortcut: in the quickRS folder, right-click make_shortcut.ps1 and choose "Run with PowerShell".
+For a Desktop shortcut: right-click make_shortcut.ps1 and choose "Run with PowerShell".
 
 
-4. Convert your songs to feedpaks (optional)
---------------------------------------------
-You don't need this to play your songs.
+2. Your songs
+-------------
+quickRS plays your .psarc files straight from Rocksmith's dlc folder (with Steam it's usually
+C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc), and feedpaks, an open one-file-per-song format.
+You don't need to convert anything.
 
-Feedpaks are an open format for the same songs: one plain, unencrypted file per song, with the song's parts,
-audio and lyrics. Once converted, they play without keys. Convert if you want to play without the keys, or if
-you want your songs in the open format. Your .psarc files are only read, never changed, so Rocksmith keeps
-working as before.
+Settings (F2) > Directories > SONG FOLDERS lists the folders quickRS reads. "Add folder..." adds one (or drag a
+folder onto the window), "Remove" takes one out, "Rescan folders" (F5) reads them again.
+"Search Rocksmith's dlc folder" can be turned off if you only want your feedpaks.
+Each song is marked feedpak, psarc, or feedpak + psarc.
 
-The converter needs the keys too, to read your .psarc files, so do step 1 first.
 
-The easy way: "quickRS Converter.exe"
-  1. In the quickRS folder, double-click "quickRS Converter.exe".
-  2. Look at the top line. It should say "Keys found: ready to convert". If it says "keys.json is missing",
-     go to "Check the keys" below.
-  3. Look at box 1, "Your Rocksmith songs". It's filled in by itself only if Rocksmith is in Steam's usual
-     place, C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc
-     If it's empty, press "Browse..." next to it and pick your dlc folder.
-  4. Look at box 2, "Where the feedpaks go". Once box 1 is filled, it shows a folder called "feedpak", next to
-     "dlc". Leave it as it is. quickRS then finds your feedpaks by itself. (If you pick another folder, drag
-     that folder onto the quickRS window once after converting.)
-  5. Press Convert. Each song shows in the list as it's done.
-  6. Wait until the line next to Convert starts with "Done".
-  7. To see the feedpaks, press "Open the feedpak folder".
+3. Rocksmith's keys (only for .psarc files)
+-------------------------------------------
+.psarc files are encrypted. quickRS needs two keys to read them: the "PSARC key" and the "SNG key for PC". Each
+is 64 characters of 0-9 and A-F, the same in every copy of Rocksmith. They are not a licence key and have nothing
+to do with your Steam account. quickRS can't include them; they're published in open-source Rocksmith modding
+tools. Feedpaks don't need them.
 
-It converts every song in the folder, including those in subfolders. Run it again after buying or adding
-songs: only the new ones are converted, and the rest are counted as "already there".
+The easy way:
+  1. Settings (F2) > Directories, scroll down to ROCKSMITH KEYS.
+  2. Paste the PSARC key into "PSARC key" and the SNG key into "SNG key". (A whole keys.json text pasted into
+     either box fills both.)
+  3. Press "Save keys". Songs that said "needs keys" are read straight away: no restart, no F5.
+"Load keys file..." uses a keys.json you already have.
 
-If you have a song as both a .psarc and a feedpak, quickRS lists it once. To choose which copy plays, open
-Settings (F2) > Library > "Songs in both formats", and pick "The psarc" or "The feedpak".
+Or make keys.json yourself: open keys.example.json in Notepad, replace each <...> (from < to >, both included)
+with its key, and save it as keys.json in the quickRS folder. If Notepad saves it as keys.json.txt, that works
+too. quickRS notices the file while it's open.
 
-Without the window: "Convert songs.bat"
-It does the same conversion in a console window (a black window with text).
-  1. Make sure keys.json is in the quickRS folder (step 1). Without it, "Convert songs.bat" says "keys.json
-     is missing" and stops.
-  2. In the quickRS folder, double-click "Convert songs.bat".
-  3. It asks "Which folder has your .psarc songs?"
-       - If it says "Press Enter for Rocksmith's own: ...", press Enter.
-       - If not, type or paste the full path of your dlc folder, then press Enter.
-  4. It asks "Where should the feedpaks go?" and suggests a folder. Press Enter to accept it.
-  5. Wait until it says "Feedpaks are in: ...".
-  6. Press any key to close the window.
+The ROCKSMITH KEYS card says whether keys were found and, if not, where it looked or what's wrong with the file.
 
-From a command prompt, in the quickRS folder, the same conversion is:
+
+4. Plug in your guitar
+----------------------
+The Real Tone Cable works as it does in Rocksmith: plug it in and quickRS picks it. Audio interfaces (WASAPI or
+ASIO, including RS_ASIO setups), amp modellers and microphones work too. Settings (F2) > Audio input / output
+shows what's picked. "Set up your guitar" there walks you through it step by step: the input, the output, a level
+check, what's plugged in, and calibration.
+Calibration works like Rocksmith's: guitar volume and tone knobs all the way up, hands off for 2 seconds, then
+strum as hard as you can until the bar fills. If it says your interface clipped, turn the interface's gain down
+and calibrate again. It recommends a trim and a pluck sensitivity, which you can adjust with sliders.
+
+
+5. Convert to feedpaks (optional)
+---------------------------------
+"quickRS Converter.exe" turns your .psarc files into feedpaks, which play without keys. It needs the keys once,
+to read the .psarc files, and never changes them. Its top line should say "Keys found: ready to convert". Leave
+box 2 as it is (a feedpak folder next to dlc, which quickRS finds by itself) and press Convert. "Convert
+songs.bat" does the same in a console window, and so does:
     quickrs-cli.exe convert-folder "C:\...\Rocksmith2014\dlc" "C:\...\Rocksmith2014\feedpak"
 
 
-If something's not right
-------------------------
-Songs say "needs keys" (in red):
-  1. Check that keys.json is in the quickRS folder, next to quickrs.exe.
-  2. Close quickRS.
-  3. Open quickRS again.
-  4. Press F5. (F5 alone, without closing quickRS first, doesn't pick up new keys.)
-  5. Still "needs keys"? Go to "Check the keys" (below).
-  The hint quickRS shows for such a song points to Settings > Library, but the keys aren't there. They only
-  go in keys.json, in the quickRS folder.
+Updates
+-------
+quickRS looks for a new version at most once a day and offers it; nothing is downloaded until you press
+"Update now". Settings (F2) > Updates turns the check off or checks now. An update replaces the program files
+only: your keys, settings, scores and sounds stay.
 
-Check the keys:
-  quickRS itself shows no error for a wrong keys.json: the songs just keep saying "needs keys". The converter
-  is the place to check.
-  1. In the quickRS folder, double-click "quickRS Converter.exe".
-  2. Read its top line:
-     - "Keys found: ready to convert": the keys work. Close quickRS, open it again, and press F5.
-     - "keys.json is missing": either there's no keys.json, or it's there but something's wrong with it. The
-       converter doesn't say which. Check the three things below.
-  The three things to check:
-     - The name. It may have been saved as keys.json.txt, and Windows may hide the .txt, so the name looks
-       right. Open the file in Notepad, then do steps 10 to 14 of step 1 again, typing "keys.json" with the
-       quotes.
-     - Example text left in. Open keys.json in Notepad. There must be no < or > left in it.
-     - Keys pasted wrongly. Each key must be whole (64 characters, or the 0x1A, 0x2B, ... form), on one line,
-       between its two quotes. The quotes, the colons and the comma must still be there.
-  After fixing it, press "Check again" in the converter. When it says "Keys found", close quickRS, open it
-  again, and press F5.
-
-No songs at all: drag your dlc folder onto the quickRS window. See "If you don't see your songs" in step 3.
-
-Windows warns about an unknown app: click "More info", then "Run anyway".
-
-The converter's "Your Rocksmith songs" box is empty: press "Browse..." and pick your dlc folder.
-
-"Convert songs.bat" doesn't offer your songs folder when it asks: type or paste the full path of your dlc
-  folder, then press Enter.
-
-
-Keyboard shortcuts
-------------------
-F2 settings, F11 full screen, Space play / pause, Esc back. Every page shows its keys on its buttons.
 
 Your data
 ---------
-quickRS keeps these in its data folder:
-  - config.json: your settings and song folders.
-  - userdata.json: your scores, favourites and playlists.
-  - .quickrs-cache: the library index and covers.
-The data folder is the first of these that applies:
-  - the folder named in the QUICKRS_DATA environment variable;
-  - this folder, if a config.json or userdata.json is here (a portable install);
-  - otherwise %APPDATA%\quickRS.
+Settings, scores, favourites, playlists, saved licks, saved sounds, keys saved in Settings and your takes are
+in %APPDATA%\quickRS\data (paste that into File Explorer's address bar). If a config.json or userdata.json is in
+the quickRS folder (or in a "quickRS Data" folder inside it), that folder is used instead: a portable install.
+Recordings (R) go to "quickRS Recordings" in your Music folder. Settings (F2) > Directories > RECORDINGS changes
+where recordings and takes go.
 
-Like it? quickRS is free, but vibecoding isn't free! Buy me a coffee: https://ko-fi.com/arpanmitra
 
-Command-line tools: run quickrs-cli.exe --help (song info, tabs, audio, feedpak conversion, devices, library).
+Keyboard
+--------
+F2 settings, F11 full screen, Space play / pause, Esc back. Every button shows its key; in a song, F1 (or ?)
+shows them all. R records what you hear (R again pauses, Shift+R stops and saves); Ctrl+R records a take of the
+loop and checks it; G swaps the recording's guitar for the synth; V shows the RS Highway.
+
+
+Command-line tools: quickrs-cli.exe --help (song info, tabs, audio, feedpak conversion, devices).
 quickrs.exe --silent starts without any sound device.
-Licences are in the licences folder: quickRS is MIT, the Manrope font is SIL OFL, and ww2ogg's codebooks are
-BSD.
+Licences are in the licences folder: quickRS is MIT, the Manrope font is SIL OFL, and ww2ogg's codebooks are BSD.
 quickRS isn't made by or connected with Ubisoft. Rocksmith is a trademark of Ubisoft Entertainment.
+quickRS is free, but vibecoding isn't: https://ko-fi.com/arpanmitra

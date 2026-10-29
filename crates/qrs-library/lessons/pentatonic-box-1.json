@@ -1,0 +1,271 @@
+{
+  "id": "pentatonic-box-1",
+  "number": 2,
+  "course": "Rock and blues foundations",
+  "course_order": 3,
+  "title": "The minor pentatonic, box 1",
+  "summary": "The one scale shape behind most rock and blues riffs, found inside riffs you know, moved to three keys, and used to jam.",
+  "intro": [
+    "The minor pentatonic is a five-note scale, and its first shape, box 1, sits under your hand in a four-fret block: two notes on every string. Riffs, licks and solos in rock and blues come out of this box more than anywhere else.",
+    "You've already played it without knowing. The Smoke on the Water riff lives in box 1 of G minor. So does Born Under a Bad Sign, six frets higher in C sharp minor. The shape never changes; only where you put it does. The root on the low E string tells you the key.",
+    "Each scale item has three steps: see the shape with the riff drawn inside it, play it up and down cleanly, then jam over the record. Play the riff first, then change one note, then make up your own. That's how improvising starts."
+  ],
+  "tips": [
+    "One finger per fret. First finger plays the lower note on every string; the higher note is the third finger, or the little finger where the gap is three frets.",
+    "Say the root out loud each time you pass it. Box 1 has three roots: the low E string, the D string and the high E string.",
+    "Up and down slowly with alternate picking (down, up, down, up) before you try it fast.",
+    "Over the song, land on a root at the end of a phrase. It sounds finished.",
+    "Short phrases with gaps sound more musical than running up and down the box.",
+    "If a note sounds wrong, move one fret either way. You're never more than a fret from a good note."
+  ],
+  "credit": "Justin Sandercoe (justinguitar.com) teaches the minor pentatonic as pattern 1 first, with a picking exercise in the beginner course and then basic blues improvisation over it, before moving the shape and adding the other patterns. This lesson follows that order. Seeing riffs as shapes inside the box is a common teaching idea from his Essential Blues Lead Guitar lessons and many others.",
+  "riffs": [
+    {
+      "id": "smoke-box",
+      "kind": "scale",
+      "name": "G minor pentatonic, box 1",
+      "artist": "Deep Purple",
+      "title": "Smoke on the Water",
+      "part": "Lead",
+      "start": 12.1,
+      "end": 20.7,
+      "about": "Start with a riff you know. In Ear training lesson 1 you played it on the G string; here you see it sitting inside box 1 at the third fret. The one note outside the box (D flat) is the 'blue note', and it's what makes the riff sound mean.",
+      "scale": {
+        "name": "G minor pentatonic",
+        "root": "G",
+        "shape": [
+          [
+            0,
+            3
+          ],
+          [
+            0,
+            6
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            5,
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "id": "bad-sign-riff",
+      "kind": "learn",
+      "name": "The intro riff",
+      "artist": "Albert King with Stevie Ray Vaughan",
+      "title": "Born Under a Bad Sign",
+      "part": "Combo",
+      "start": 13.35,
+      "end": 22.3,
+      "about": "One of the great box 1 riffs, here at the ninth fret in C sharp minor. It walks up the box and drops to the root. The slide at the end starts on the blue note again: fret 10 on the A string, sliding up to 11.",
+      "how": [
+        "First finger stays at fret 9 for the whole riff; ring finger takes fret 11.",
+        "The first three notes are palm muted. Lift the palm for the root at the end of each phrase (low E string fret 9, or D string fret 11) and let it ring.",
+        "The E on the A string at fret 7 sits just below the box. It's the same note as fret 12 on the low E string, but fret 7 is closer. Reach back with your first finger and come straight back.",
+        "Leave the gaps in. The riff is short, and the space after each low root is part of it."
+      ]
+    },
+    {
+      "id": "bad-sign-box",
+      "kind": "scale",
+      "name": "C sharp minor pentatonic, box 1",
+      "artist": "Albert King with Stevie Ray Vaughan",
+      "title": "Born Under a Bad Sign",
+      "part": "Combo",
+      "start": 13.35,
+      "end": 22.3,
+      "about": "Same shape as Smoke on the Water, moved up six frets. Over the record, play the riff, then start changing it: same rhythm, different notes from the box. The one note outside is the G that slides up at the end, the blue note.",
+      "scale": {
+        "name": "C# minor pentatonic",
+        "root": "C#",
+        "shape": [
+          [
+            0,
+            9
+          ],
+          [
+            0,
+            12
+          ],
+          [
+            1,
+            9
+          ],
+          [
+            1,
+            11
+          ],
+          [
+            2,
+            9
+          ],
+          [
+            2,
+            11
+          ],
+          [
+            3,
+            9
+          ],
+          [
+            3,
+            11
+          ],
+          [
+            4,
+            9
+          ],
+          [
+            4,
+            12
+          ],
+          [
+            5,
+            9
+          ],
+          [
+            5,
+            12
+          ]
+        ]
+      }
+    },
+    {
+      "id": "go-my-way-riff",
+      "kind": "learn",
+      "name": "The riff, up the neck",
+      "artist": "Lenny Kravitz",
+      "title": "Are You Gonna Go My Way",
+      "part": "Lead",
+      "start": 19.55,
+      "end": 26.98,
+      "about": "A six-note riff in box 1 of E minor at the twelfth fret, played four times. It starts with a small bend, a preview of lesson 4.",
+      "how": [
+        "Bend the G string at fret 14 up a semitone with your ring finger, with the first two fingers behind it pushing too.",
+        "Let the bend down, then pull off to fret 12.",
+        "Then fret 14 on the D string, 14 on the A string, 12 and 14 on the D string.",
+        "Keep it light and quick. It's the same six notes every time."
+      ]
+    },
+    {
+      "id": "go-my-way-box",
+      "kind": "scale",
+      "name": "E minor pentatonic, box 1 (12th fret)",
+      "artist": "Lenny Kravitz",
+      "title": "Are You Gonna Go My Way",
+      "part": "Lead",
+      "start": 19.55,
+      "end": 26.98,
+      "about": "Box 1 again, now at the twelfth fret, where the dots on the neck make it easy to find. Jam over the riff: bend the same note the riff bends, and finish your phrases on an E.",
+      "scale": {
+        "name": "E minor pentatonic",
+        "root": "E",
+        "shape": [
+          [
+            0,
+            12
+          ],
+          [
+            0,
+            15
+          ],
+          [
+            1,
+            12
+          ],
+          [
+            1,
+            14
+          ],
+          [
+            2,
+            12
+          ],
+          [
+            2,
+            14
+          ],
+          [
+            3,
+            12
+          ],
+          [
+            3,
+            14
+          ],
+          [
+            4,
+            12
+          ],
+          [
+            4,
+            15
+          ],
+          [
+            5,
+            12
+          ],
+          [
+            5,
+            15
+          ]
+        ]
+      }
+    },
+    {
+      "id": "bad-sign-long",
+      "kind": "learn",
+      "name": "Intro, verses and chorus",
+      "artist": "Albert King with Stevie Ray Vaughan",
+      "title": "Born Under a Bad Sign",
+      "part": "Combo",
+      "start": 13.35,
+      "end": 58.2,
+      "pass": 0.8,
+      "about": "Forty-five seconds of the riff as it runs under the singing, with small changes each time round. Almost everything stays in box 1 at the ninth fret. The few notes outside are the blue note, the first chord stab, and a short climb up the A string (frets 8, 9, 10, 11) near the end.",
+      "how": [
+        "It's the intro riff with different endings. Listen for which ending comes next.",
+        "There's a gap with two chord stabs after the intro. Count through it.",
+        "Near the end there's a quick run down the box on the D, A and low E strings. Learn that bit on its own in wait mode first.",
+        "Keep your hand parked at the ninth fret. Nothing here needs you to move."
+      ]
+    }
+  ]
+}

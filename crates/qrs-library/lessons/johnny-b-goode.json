@@ -1,0 +1,484 @@
+{
+  "id": "johnny-b-goode",
+  "course": "Songs",
+  "course_order": 1,
+  "number": 1,
+  "title": "Johnny B. Goode",
+  "summary": "Chuck Berry's rock and roll blueprint, learned from the tab in long pieces: the intro, the shuffle, the chorus stabs and both solo choruses, with two theory lessons on where it comes from and how to improvise in his style.",
+  "intro": [
+    "Johnny B. Goode is where rock and roll guitar starts. Chuck Berry cut it at Chess in Chicago, and it came out in 1958. The opening lick is older: Carl Hogan played a single-note version on Louis Jordan's 'Ain't That Just Like a Woman' in 1946. Chuck played it on two strings at once (double stops), an idea he got from T-Bone Walker.",
+    "The song is a 12-bar blues in Bb at about 170 beats a minute. Nearly everything sits around the 6th fret, so your hand can stay there.",
+    "You learn it from the tab, in long pieces: the whole intro, a whole verse and chorus of rhythm, the chorus answers, and both solo choruses in one go. Practise each piece freely with the record. When it feels good, press Record and the app checks your take.",
+    "Two theory lessons sit in between. After the intro: the key, its chords, the scale and the notes Chuck leans on. After the solo: how he built it and how to make up your own. Parts that repeat are taught once; in the whole-song stage the app points out what changes as you play."
+  ],
+  "tips": [
+    "Down-strokes for the shuffle and the double stops, as Chuck did. Alternate pick the fast single-note runs.",
+    "Your eighths are straight and even. The drums and piano swing. Don't swing with them: the rub between the two is the sound.",
+    "For a double stop, flatten one finger across both strings and let it lie lightly on the next string too, so that string stays quiet.",
+    "Bend the G string 8th until it matches the B string 6th: the same note on two strings. Attitude matters more than perfect pitch.",
+    "The 12-bar map: four bars Bb, two Eb, two Bb, two F, two Bb. Count bars until you feel them.",
+    "Full speed is about 170 beats a minute. If a part falls apart, press Slower for a few loops, then go straight back up.",
+    "Chuck never played these parts the same way twice. Get the shapes, the rhythm and the drive right before you chase every note."
+  ],
+  "teaches": [
+    "the key of Bb on the neck: Bb7, Eb7 and F7 (I, IV, V)",
+    "the 12-bar blues form",
+    "the boogie shuffle (root, 5th, 6th) on Bb, Eb and F",
+    "Bb minor pentatonic, box 1 (6th fret)",
+    "Chuck's box: Bb minor and major pentatonic mixed",
+    "the b3 to 3 curl (Db to D on the G string)",
+    "double stops as chord fragments (F/Bb, Eb/G, F/Ab)",
+    "unison bends and double-stop bends",
+    "stop time, call and response, 3+3+2 groupings",
+    "aiming for each chord's 3rd when you improvise",
+    "Bb major pentatonic double stops at the 10th fret"
+  ],
+  "builds_on": [],
+  "credit": "Teaching ideas paraphrased from: JustinGuitar's Johnny B. Goode song lesson (the 12-bar shuffle first; the Bb to Eb change is one string across); Paul Davids' lesson as reported by Guitar World (stepping-stone tempos); Andy Guitar (the 12-bar rhythm, then the intro); Guitar.com, 'Learn to play guitar like Chuck Berry in five minutes' (down-picking, Bb double stops, staccato bends, the G string 7th as the major 3rd); Pickup Music's Chuck Berry boogie playthrough on the Guitar Pro blog (straight eighths over a shuffle, one shape for I, IV and V); Fundamental Changes (rhythm first, a double-stop lick through the changes); JamPlay, 'How to pick like Chuck Berry' (3+3+2 groupings, unison bends, major-minor mixing, intros as variations, call and response, attitude over pitch); Premier Guitar, 'Deep Blues: Double-Stoppin' Jive' (double stops that follow the chords, descending thirds, trust your ear); Premier Guitar on T-Bone Walker (Walker as Chuck's main influence). History from Wikipedia (Johnny B. Goode; Johnnie Johnson) and A History of Rock Music in 500 Songs, episode 67 (the riff's history, T-Bone Walker's two-string idea). The key of Bb and piano: Keith Richards and biographer Travis Fitzpatrick, as quoted in coverage of Johnnie Johnson (Rock and Roll Hall of Fame, New York Sun). Bar similarity measured with tools/similar.py on the owner's chart. The tab is the owner's chart.",
+  "riffs": [
+    {
+      "id": "intro",
+      "kind": "learn",
+      "name": "The intro, all twelve bars",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 10.83,
+      "end": 27.35,
+      "pass": 0.85,
+      "about": "The whole intro in one go, about 16 seconds: double stops slid in, a low Bb chord, the unison bend over Eb, a fast run, and the turnaround that sets up verse 1.",
+      "how": [
+        "Bars 1-2: pickup G string 6 slid to 7 (Db to D), then B 6 and B 8. Then the double stop: first finger flat across the B and top E strings, slid from the 5th fret to the 6th (F and Bb). Slide-hit-hit, three times: groups of three eighths across the beat.",
+        "The rest of bar 2: a run down. B 9, 8, 6 (little, ring, first finger), G 6 and 7, D 8. Alternate pick.",
+        "Bars 3-4: ring finger flat on the A and D strings at the 8th (F and Bb), eight down-strokes. Add your middle finger on the G 7th for the last one: a Bb chord.",
+        "Then slide G 6 to 7 and keep it there while you pick B 6, 8, 6 against it. Slide G 7 down to 5, play G 3, finish on D 5 and mute it.",
+        "Bars 5-8, the band kicks in on Eb, then Bb: the unison bend. Ring finger bends G 8 (Eb) up a whole tone to F, middle finger helping. Then pick F on the B 6th, sometimes with the top E 6th too. Bend, F, bend, F: short and staccato.",
+        "Bars 9-10, F then Eb: one bend, then a run that rushes down the box and back: top E 6, B 9-8-6, top E 8, top E 6, B 9-8-6, G 8. Bend G 6 up one fret (Db to D), then B 6, top E 6, B 9 pulled off to 8, top E 6.",
+        "Bars 11-12: two bend-and-F/Bb pairs, then the turnaround. Ring finger flat on G and B 8th (Eb and G), first finger flat on G and B 6th (Db and F), hammer the G 7th with your middle finger, land on D 8 (Bb). Two muted hits close it.",
+        "It's long, so practise it whole and let the loop carry you. If one spot keeps breaking, turn on Note by note (W) for that spot, then go back to the whole thing."
+      ],
+      "callouts": [
+        {"at": 11.39, "text": "Slide into the 6th: groups of three, not two"},
+        {"at": 12.98, "text": "The run down to Bb"},
+        {"at": 14.2, "text": "Low F/Bb on A and D 8th, eight hits"},
+        {"at": 15.61, "text": "G string slide, B string against it"},
+        {"at": 17.04, "text": "Band in on Eb: start the unison bends"},
+        {"at": 22.61, "text": "F: one bend, then the long run"},
+        {"at": 24.72, "text": "Half-step bend: Db up to D"},
+        {"at": 26.48, "text": "Turnaround: Eb/G, Db/F, hammer, Bb"}
+      ]
+    },
+    {
+      "id": "intro-theory",
+      "kind": "theory",
+      "name": "Theory: where the intro comes from",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 10.83,
+      "end": 27.35,
+      "about": "The key of Bb and its three chords, the 12-bar, the scale under the intro, and the notes Chuck leans on. Then jam over a verse.",
+      "pages": [
+        {
+          "title": "The key: Bb",
+          "text": [
+            "The song is in Bb. On your guitar that's the 6th fret of the low E string, and the whole lead part lives around there.",
+            "Why Bb, an awkward key for open-string guitar? Chuck's music grew out of piano boogie and the jump-blues bands of the 1940s, and Bb and Eb are home keys for piano and horn players. Keith Richards put it down to Johnnie Johnson, Chuck's long-time pianist: the songs are built on piano chords. (Johnson said he had no part in this song, and most sources put Lafayette Leake on piano here, but the habit stuck.)",
+            "The good news: with no open strings in the way, everything here is movable. Slide it up or down and it works in any key.",
+            "The dots show the Bbs near your hand. The low E 6th, the D string 8th and the top E 6th are the ones you'll use most."
+          ],
+          "show": {
+            "marks": [[0, 6, "Bb"], [1, 1, "Bb"], [1, 13, "Bb"], [2, 8, "Bb"], [3, 3, "Bb"], [5, 6, "Bb"]]
+          }
+        },
+        {
+          "title": "Three chords: I, IV and V",
+          "text": [
+            "You know how to build a major scale and its chords. Bb major is Bb C D Eb F G A. The major chords on its 1st, 4th and 5th notes are Bb, Eb and F: the I, IV and V.",
+            "In the blues each one gets a flat 7th on top and becomes a dominant 7th: Bb7 (Bb D F Ab), Eb7 (Eb G Bb Db), F7 (F A C Eb). Ab and Db aren't in the Bb major scale. Those two 'wrong' notes are the blues.",
+            "The boxes show them where your hand already is: Bb7 at the 6th fret, Eb7 and F7 as A-string shapes at the 6th and 8th. The rhythm guitar plays just the bottom two notes of each, root and 5th, with a reach to the 6th. You'll learn that next."
+          ],
+          "show": {
+            "chords": [
+              {"name": "Bb7", "frets": [6, 8, 6, 7, 6, 6]},
+              {"name": "Eb7", "frets": [-1, 6, 8, 6, 8, 6]},
+              {"name": "F7", "frets": [-1, 8, 10, 8, 10, 8]}
+            ]
+          }
+        },
+        {
+          "title": "The 12-bar",
+          "text": [
+            "The whole song is the same 12 bars over and over: four bars of Bb, two of Eb, two of Bb, two of F, two of Bb. That's the 12-bar blues, the commonest form in rock and roll.",
+            "The intro is one trip round it, with one twist: bar 10 is Eb, not F. The verses, choruses and solos all go F, F.",
+            "Find the three roots: Bb on the low E 6th, Eb on the A 6th, F on the A 8th. Three notes within two frets: the map everything else hangs on."
+          ],
+          "show": {
+            "marks": [[0, 6, "I Bb"], [1, 6, "IV Eb"], [1, 8, "V F"]]
+          },
+          "do": "find",
+          "targets": [[0, 6], [1, 6], [1, 8]]
+        },
+        {
+          "title": "The scale: Bb minor pentatonic, box 1",
+          "text": [
+            "Take Bb natural minor (Bb C Db Eb F Gb Ab) and drop the 2nd (C) and the b6 (Gb): Bb Db Eb F Ab. That's Bb minor pentatonic: root, b3, 4, 5, b7.",
+            "Box 1 puts your first finger on the 6th fret. Low E, B and top E: 6th and 9th. A, D and G: 6th and 8th.",
+            "A minor scale over major chords? That's the blues. The minor 3rd (Db) rubs against the D in the Bb chord, and that rub is the sound.",
+            "Play it up and down. The intro's double stop at the 6th, the bend at the G 8th and the run from the B 9th all live in this box."
+          ],
+          "show": {
+            "scale": {"name": "Bb minor pentatonic", "root": "Bb", "shape": [[0, 6], [0, 9], [1, 6], [1, 8], [2, 6], [2, 8], [3, 6], [3, 8], [4, 6], [4, 9], [5, 6], [5, 9]]},
+            "intervals": true
+          },
+          "do": "run"
+        },
+        {
+          "title": "What he leans on",
+          "text": [
+            "The picture weighs every note of the intro by how long it lasts and whether it lands on the beat.",
+            "F and Bb come out on top. That's the double stop on the B and top E strings: the 5th and the root, two notes that fit all three chords. Chuck hammers them for bars at a time.",
+            "Eb hardly shows in the list, because Chuck almost never lets the G string 8th sit there: he bends it up to F, another way of playing F. The bend makes the F sing, then the B string 6th plays it straight. That's the unison bend.",
+            "Small but important: Db. It's never held. Chuck slides or bends it straight up to D (G 6 to 7). Minor 3rd to major 3rd, blue to bright, in one fret."
+          ],
+          "show": {
+            "scale": {"name": "Bb minor pentatonic", "root": "Bb", "shape": [[0, 6], [0, 9], [1, 6], [1, 8], [2, 6], [2, 8], [3, 6], [3, 8], [4, 6], [4, 9], [5, 6], [5, 9]]},
+            "emphasis": true,
+            "intervals": true
+          }
+        },
+        {
+          "title": "The bright notes: Chuck's box",
+          "text": [
+            "Some intro notes aren't in box 1: D (G string 7th), G (B string 8th) and a C (top E 8th) in the run. They come from Bb major pentatonic: Bb C D F G.",
+            "Put the two pentatonics together and you get Chuck's box: Bb C Db D Eb F G Ab. Minor for the bluesy bends, major for the bright 3rd and 6th. That mix is his sound.",
+            "Look at the G string: 6th, 7th, 8th are Db, D, Eb (b3, 3, 4). Minor meets major under one hand.",
+            "Find four of the added notes: G on the D string 5th, D on the G 7th, G on the B 8th, C on the top E 8th."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]},
+            "intervals": true
+          },
+          "do": "find",
+          "targets": [[2, 5], [3, 7], [4, 8], [5, 8]]
+        },
+        {
+          "title": "Jam over a verse",
+          "text": [
+            "Verse 1 loops, with no lead guitar on it. Your turn.",
+            "Start small: only the F/Bb double stop at the 6th fret, B and top E. Play it in threes like the intro: slide, hit, hit.",
+            "Add the curl: G 6 to 7 (Db to D), then land on Bb (D 8th). When the band moves to Eb at bar 5, try the unison bend.",
+            "End each 12 bars on Bb. Notes outside the box show up on the diagram: try them, keep the ones you like."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]}
+          },
+          "do": "jam",
+          "start": 28.19,
+          "end": 45.13,
+          "part": "Rhythm"
+        }
+      ]
+    },
+    {
+      "id": "verse-chorus-rhythm",
+      "kind": "learn",
+      "name": "Verse and chorus: the boogie shuffle",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Rhythm",
+      "start": 28.19,
+      "end": 62.22,
+      "pass": 0.8,
+      "about": "Verse 1 and chorus 1 on the Rhythm part: the boogie shuffle through the 12-bar twice, about 34 seconds. Every other verse and chorus is the same, so you learn it once.",
+      "how": [
+        "The shape on Bb: first finger on the low E 6th (Bb, the root), ring finger on the A 8th (F, the 5th). Your little finger reaches to the A 10th (G, the 6th) and back.",
+        "The eighths go 5, 5, 6, 5, 5, 5, 6, 5. Keep the first and ring fingers down; only the little finger moves.",
+        "Eb: the same shape one string over, same frets: A 6th, D 8th, reach to D 10th. F: two frets up from Eb: A 8th, D 10th, reach to D 12th.",
+        "The map: four bars Bb, two Eb, two Bb, two F, two Bb. The chorus is the same 12 bars again.",
+        "The last eighth before each change isn't scored. Use it to move.",
+        "All down-strokes, straight eighths, small strokes from a loose wrist. 34 seconds at this speed is a stamina test: if your forearm burns, stop and shake it out.",
+        "Rest your fretting fingers lightly on the higher strings so a wide stroke doesn't sound them."
+      ],
+      "callouts": [
+        {"at": 28.23, "text": "Verse: Bb, four bars"},
+        {"at": 33.84, "text": "Eb: one string across, same frets"},
+        {"at": 36.69, "text": "Back to Bb"},
+        {"at": 39.48, "text": "F: two frets up from Eb"},
+        {"at": 42.35, "text": "Bb, two bars"},
+        {"at": 45.15, "text": "Chorus: the same 12 bars again"},
+        {"at": 50.88, "text": "Eb"},
+        {"at": 53.71, "text": "Bb"},
+        {"at": 56.55, "text": "F"},
+        {"at": 59.37, "text": "Bb to the end"}
+      ]
+    },
+    {
+      "id": "chorus-stabs",
+      "kind": "learn",
+      "name": "The chorus answers: 'Go!' stabs",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 45.29,
+      "end": 59.4,
+      "pass": 0.85,
+      "about": "The lead guitar's answers in chorus 1: every two bars the singer shouts 'Go!' and the guitar stabs back. One shape, five times, then a short tag into verse 2. Chorus 3 uses the same stab; chorus 2 uses the intro's bend instead.",
+      "how": [
+        "Middle finger on the G string 10th, first finger on the B string 9th (F and Ab). Start a fret lower (G 9, B 8) and slide both up as you pick.",
+        "Three more hits, then the last one with your ring finger on B 11 instead (F and Bb), slid off down the neck.",
+        "It starts on the 'and' of beat 1, just after the shout. Count 'one AND two'.",
+        "One bar on, one bar off. Leave the gaps empty: ease off so nothing rings.",
+        "F and Ab are the 5th and flat 7th of Bb, so the stab is the top of a Bb7. The shape stays put over Eb and F too.",
+        "The tag: G and B 8th together (Eb/G), then G 8 and G 7 (Eb, D), leading into verse 2."
+      ],
+      "callouts": [
+        {"at": 45.33, "text": "Go! Slide in on the 'and' of 1"},
+        {"at": 51.05, "text": "Same stab over Eb"},
+        {"at": 56.73, "text": "Same stab over F"},
+        {"at": 57.8, "text": "Tag: Eb/G, Eb, D"}
+      ]
+    },
+    {
+      "id": "solo",
+      "kind": "learn",
+      "name": "The solo, both choruses",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 96.0,
+      "end": 130.1,
+      "pass": 0.8,
+      "about": "Both solo choruses in one go: 24 bars, about 34 seconds. They share one figure (F/Bb, stepped down to Bb) but go different ways after it, so you learn both.",
+      "how": [
+        "Solo 1, bars 1-4, stop time: the band hits once a bar and you fill the space. Pickup: slide G 5 to 7. The figure: F/Bb (first finger flat on B and top E 6th) five times, Eb/G (ring finger flat on G and B 8th; muted the first time), Db hammered to D (G 6 to 7), Bb (D 8).",
+        "Bar 2 is the figure again, landing on the low F/Bb (A and D 8th). Bar 3 squeezes it into fours: F/Bb, Eb/G, Db-D, Bb, twice. Bar 4 rocks between the high F/Bb and the low one (add the G 8th).",
+        "Solo 1, bars 5-8, single notes over Eb and Bb: a bend (G 8 up to F), a run down the box (top E 6, B 9, top E 8, B 9-8-6, G 8), Db hammered to D, then D, F, Bb up the G 7, B 6, top E 6: a Bb chord one note at a time. Repeated Bb, then G, F, D down (B 8, B 6, G 7).",
+        "Solo 1, bars 9-12, F then Bb: the figure once, then Eb/G four times on the 'and' of each beat, pushed up as you hit (G a tone, B a half step: F and Ab). The step-down again, and end on D/F (G 7, B 6) at the start of the last bar.",
+        "Solo 2, bars 1-4, stop time again: the figure three times, landing on Bb, Bb, then low F (A 8). Then Eb, Db, D one at a time on the G string, F/Bb, and Eb/G three times on the 'and's, pushed up.",
+        "Solo 2, bars 5-8, over Eb and Bb: rock between Eb/G (pushed up) and F/Bb in a long-short rhythm. Keep both fingers hovering. Three F/Bb hits end bar 8.",
+        "Solo 2, bar 9, over F: top E 9 bent up one fret (Db to D), Bb, then a staircase of double stops: G/C (B and top E 8), F/Bb (6), then E/Ab (G and B 9), Eb/G (8), Db/F (6).",
+        "Bar 10 to the end: three bend-and-F/Bb pairs, Eb, Db hammered to D, Bb. Then F/Bb, a muted hit, Ab (B 9), F/Bb, Eb/G, Db/F to D, and a muted stop.",
+        "The open strings at the end of solo 1's bar 4 are a hand-move clank in the chart: hit them loosely or leave them."
+      ],
+      "callouts": [
+        {"at": 96.05, "text": "Pickup: slide G 5 to 7, then stop time: F/Bb five times, step down"},
+        {"at": 99.51, "text": "Bar 3: the figure in fours"},
+        {"at": 100.96, "text": "Rock the high and low F/Bb"},
+        {"at": 102.38, "text": "Band back on Eb: a bend, then single notes"},
+        {"at": 104.49, "text": "Db to D, then D, F, Bb up the strings"},
+        {"at": 108.07, "text": "F: the figure once more"},
+        {"at": 109.71, "text": "Eb/G bent, on the 'and' of each beat"},
+        {"at": 112.4, "text": "Land on D/F. Solo 2 next bar"},
+        {"at": 113.81, "text": "Solo 2: the figure, three landings"},
+        {"at": 117.61, "text": "Eb, Db, D one at a time, then Eb/G bent on the 'and's"},
+        {"at": 119.93, "text": "Rock Eb/G and F/Bb, long-short"},
+        {"at": 125.34, "text": "Top E 9th half-step bend, then down the staircase"},
+        {"at": 126.79, "text": "Three bend-and-F/Bb pairs"},
+        {"at": 128.57, "text": "Last phrase: F/Bb, mute, Ab, step down"}
+      ]
+    },
+    {
+      "id": "solo-theory",
+      "kind": "theory",
+      "name": "Theory: the solo, and making up your own",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 96.0,
+      "end": 130.1,
+      "about": "How Chuck built the solo (one figure, double stops as chord fragments, rhythm, call and response), the notes it uses, aiming for each chord's 3rd, ideas higher up the neck, and two jams.",
+      "pages": [
+        {
+          "title": "How the solo is built",
+          "text": [
+            "Bars 1-4 of each solo chorus are stop time: the band hits once and stops, three bars running. The guitar fills the silence. It's a spotlight, and Chuck fills it with one figure.",
+            "The figure: F/Bb five times, step down to Eb/G, Db hammered to D, land on Bb. He plays it, changes the ending, squeezes it into fours, and brings it back over the F. Ten of the 24 bars start on that F/Bb.",
+            "In between come contrasts: single-note runs in solo 1, two rocking double stops in solo 2, and a step-down to finish each one. One idea stated, bent and repeated: that's how a solo hangs together.",
+            "Much of this comes from T-Bone Walker, Chuck's big influence: double stops, bends, short phrases answering the band. Chuck played it faster, straighter and louder."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]},
+            "marks": [[4, 6, "F"], [5, 6, "Bb"], [3, 8, "Eb"], [4, 8, "G"], [3, 6, "Db"], [3, 7, "D"], [2, 8, "Bb"]]
+          }
+        },
+        {
+          "title": "Double stops are chord fragments",
+          "text": [
+            "A double stop is two notes of a chord. Which two decides how it sounds over each change.",
+            "F/Bb (B and top E, 6th) is the top of the Bb7 at the 6th fret: 5th and root. Over Eb it's the 9th and 5th, over F the root and 4th. It's safe everywhere, which is why he can hammer it.",
+            "Eb/G (G and B, 8th) is the top of an Eb chord: root and 3rd. Over the Eb bars it is the chord. Over Bb it's the 4th and 6th, the IV leaning on the I; stepping down to Db/F, then D, resolves it. Pushed up over F, it becomes F and Ab: the root and the blue 3rd.",
+            "F/Ab (G 10, B 9), the chorus stab, is the middle of a Bb7 shaped like an open D7: the 5th and flat 7th."
+          ],
+          "show": {
+            "chords": [
+              {"name": "Bb7 (top: F/Bb)", "frets": [6, 8, 6, 7, 6, 6]},
+              {"name": "Eb (top: Eb/G)", "frets": [-1, 6, 8, 8, 8, 6]},
+              {"name": "Bb7, D7 shape (F/Ab)", "frets": [-1, -1, 8, 10, 9, 10]}
+            ]
+          }
+        },
+        {
+          "title": "Rhythm does half the work",
+          "text": [
+            "The intro's double stops go slide-hit-hit, three times over. In bar 1 that's 3+3+2 eighths, and the last hit lands on the next downbeat. Groups of three across a bar of four push the time forward.",
+            "In the solo: five hits then three (bar 1), then the figure squeezed into fours (bar 3). In bars 5-8 of solo 2 two double stops rock long-short. Twice he plays plain quarter notes, Eb/G pushed up, but on the 'and' of each beat, against the band: bar 10 of solo 1 and bar 4 of solo 2.",
+            "Call and response: in the choruses the singer shouts and the guitar answers for one bar, then rests for one. In the solo the band calls with a stop-time hit and you answer.",
+            "Your eighths stay straight while the drums swing. Change the rhythm before you change the notes: it's the quickest way to sound new."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]}
+          }
+        },
+        {
+          "title": "Chuck's box over the solo",
+          "text": [
+            "Here's Chuck's box with each note's interval from Bb. Play it up and down.",
+            "The shading shows what the solo uses. Bb and F carry most of it: the F/Bb double stop. Below them sit the notes of the Eb/G pair (when bent, those show up as F and Ab or A instead) and the little curl from Db to D.",
+            "Notice what's barely there: C, the 2nd. And what's hardly ever held: Db, the b3. It's colour, nearly always on its way up to D."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]},
+            "emphasis": true,
+            "intervals": true
+          },
+          "do": "run"
+        },
+        {
+          "title": "Aim for the 3rd",
+          "text": [
+            "The surest way to sound like you know the changes: land on each chord's 3rd as it arrives. The root and 5th sound fine anywhere; the 3rd says which chord you're on.",
+            "Over Bb the 3rd is D: G string 7th. Over Eb it's G: B string 8th. Over F it's A: D string 7th, the one note here outside both pentatonics. Use it only on the F bars.",
+            "Chuck does this with double stops: Db curling up to D over Bb, Eb/G over Eb. Find the three 3rds, then hear verse 2 in your head: D on bar 1, G on bar 5, D on bar 7, A on bar 9.",
+            "Next step, the flat 7ths: Ab over Bb (B 9th), Db over Eb (G 6th), Eb over F (G 8th)."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]},
+            "marks": [[3, 7, "3 of Bb"], [4, 8, "3 of Eb"], [2, 7, "3 of F"]]
+          },
+          "do": "find",
+          "targets": [[3, 7], [4, 8], [2, 7]]
+        },
+        {
+          "title": "Up the neck: double stops at the 10th fret",
+          "text": [
+            "Chuck's double stops work higher up the neck too. Here is Bb major pentatonic (Bb C D F G) on the top four strings around the 10th fret. No blue notes up here.",
+            "Over Bb: slide the B and top E strings from 10/9 up to 11/10 (Bb and D, root and 3rd). Then G 10 with B 11 (F and Bb).",
+            "Over Eb, drop back to Eb/G at the 8th (G and B). Over F, G and B at the 10th give F and A: root and 3rd of F.",
+            "Play the shape up and down, then come back to box 1 for the bluesy bits."
+          ],
+          "show": {
+            "scale": {"name": "Bb major pentatonic, 10th fret (top strings)", "root": "Bb", "shape": [[2, 10], [2, 12], [3, 10], [3, 12], [4, 11], [4, 13], [5, 10], [5, 13]]},
+            "intervals": true,
+            "marks": [[3, 8, "Eb"], [4, 8, "G"], [4, 10, "A"]]
+          },
+          "do": "run"
+        },
+        {
+          "title": "More ideas: jam over verse 2",
+          "text": [
+            "Bends: the unison bend (G 8 pushed to F with the B 6th) and the double-stop bend (ring finger flat on G and B 8th, push both). Keep them short and a bit rough.",
+            "One lick, three chords: play the chorus stab (G 10, B 9) over Bb, Eb and F without moving. It changes meaning each time: 5th and b7 of Bb, 9th and 4th of Eb, root and b3 of F (a bluesy F).",
+            "Quote yourself: open with the intro's slid double stops, or end with its turnaround (Eb/G, Db/F, D, Bb).",
+            "Leave space: answer for a bar, rest for a bar, like the chorus stabs. Start phrases on the 'and' of beat 1, as the stab does."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]}
+          },
+          "do": "jam",
+          "start": 62.22,
+          "end": 79.31,
+          "part": "Rhythm"
+        },
+        {
+          "title": "Jam: build your own solo",
+          "text": [
+            "Verse 3 loops. Build a solo in layers, adding one each time round.",
+            "1: only F/Bb at the 6th fret, playing with rhythm: threes, fives, quarter notes. 2: end each phrase with the step-down (Eb/G, Db to D, Bb). 3: aim for the 3rd on each change (D, G, D, A, D).",
+            "4: go up to the 10th fret for bars 1-4, come back to Eb/G for bar 5. 5: rests: play a bar, rest a bar.",
+            "When one pass hangs together, that's a solo. Then go back and play Chuck's and notice what he chose."
+          ],
+          "show": {
+            "scale": {"name": "Chuck's box (Bb minor + major pentatonic)", "root": "Bb", "shape": [[0, 6], [0, 8], [0, 9], [1, 5], [1, 6], [1, 8], [2, 5], [2, 6], [2, 8], [3, 5], [3, 6], [3, 7], [3, 8], [4, 6], [4, 8], [4, 9], [5, 6], [5, 8], [5, 9]]}
+          },
+          "do": "jam",
+          "start": 131.1,
+          "end": 148.43,
+          "part": "Rhythm"
+        }
+      ]
+    },
+    {
+      "id": "whole-song",
+      "kind": "learn",
+      "name": "The whole song, lead",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Lead",
+      "start": 10.83,
+      "end": 165.9,
+      "pass": 0.8,
+      "listens": 1,
+      "about": "Everything the lead guitar plays, intro to the last chord, about two and a half minutes. You know most of it. The new bits are pointed out as they come.",
+      "how": [
+        "The form: intro, verse 1, chorus 1 (stabs), verse 2, chorus 2 (bend answers), solo choruses 1 and 2, verse 3, chorus 3 and the ending.",
+        "In the verses the Lead part is silent while Chuck sings. Play the shuffle quietly or count the 12 bars.",
+        "Chorus 2 answers with the intro's unison bend instead of the stab: bend G 8 to F, B 6, B 6, bend, B 6, bend. It starts an eighth after the bar line.",
+        "Chorus 3 is the chorus 1 stab, but two beats later, with two muted hits in front: rest your fingers on the G and B strings without pressing.",
+        "The ending: Bb on the A string 13th in pairs (middle finger), then a Bb9 at the 13th: middle finger A 13, first finger D 12, ring finger flat on G, B and top E 13. Let it ring."
+      ],
+      "callouts": [
+        {"at": 28.23, "text": "Verse 1: Chuck sings, Lead is silent. Play the shuffle or count"},
+        {"at": 45.33, "text": "Chorus 1: the stabs you learned"},
+        {"at": 62.24, "text": "Verse 2: silent. Shuffle or count"},
+        {"at": 79.51, "text": "Chorus 2: unison bends instead of stabs, an eighth after the bar"},
+        {"at": 88.88, "text": "This answer ends with F/Bb twice (B and top E 6th)"},
+        {"at": 91.02, "text": "Pick the bend and B 6 together: a true unison bend"},
+        {"at": 96.05, "text": "The solo, both choruses, as learned"},
+        {"at": 131.13, "text": "Verse 3: silent. Shuffle or count"},
+        {"at": 149.35, "text": "Chorus 3: mute, mute, then the stab, two beats later than chorus 1"},
+        {"at": 155.18, "text": "Slide-in stab, from the 'and' of beat 3"},
+        {"at": 159.54, "text": "Slide in, short. One more stab on the F, from the 'and' of 3"},
+        {"at": 162.98, "text": "Ending: Bb on the A 13th, in pairs"},
+        {"at": 164.99, "text": "Bb9 at the 13th. Let it ring"}
+      ]
+    },
+    {
+      "id": "whole-song-rhythm",
+      "kind": "learn",
+      "name": "The whole song, rhythm",
+      "artist": "Chuck Berry",
+      "title": "Johnny B. Goode",
+      "part": "Rhythm",
+      "start": 17.0,
+      "end": 165.9,
+      "pass": 0.8,
+      "listens": 1,
+      "about": "Optional: the shuffle from its first note to the last hit. It's the verse you learned all the way through, plus the intro's late entry, stop time under the solos, and a low F at the end.",
+      "how": [
+        "You come in at bar 5 of the intro, on Eb. The intro's bars 9-10 are F then Eb, one bar each.",
+        "Under each solo chorus, bars 1-3 are stop time: one hit each (Bb, Eb, Bb), choked straight away. The shuffle comes back on Eb at bar 5.",
+        "A few bars reach one fret further for the flat 7th: A 11th over Bb, D 13th over F.",
+        "In the last chorus the F drops to the 1st fret: low E 1, A 3, reach to A 5. Then back to Bb and one last accented hit."
+      ],
+      "callouts": [
+        {"at": 17.04, "text": "Come in on Eb at intro bar 5"},
+        {"at": 22.61, "text": "F, one bar only"},
+        {"at": 24.02, "text": "Eb: the intro's V-IV"},
+        {"at": 25.42, "text": "Bb into verse 1"},
+        {"at": 96.63, "text": "Solo: stop time. Hit Bb and choke it"},
+        {"at": 98.05, "text": "Hit Eb"},
+        {"at": 99.51, "text": "Hit Bb, then wait out bar 4"},
+        {"at": 102.19, "text": "Open-string clank, then shuffle on Eb"},
+        {"at": 108.61, "text": "Reach to D 13th: Eb, the flat 7 of F"},
+        {"at": 111.66, "text": "Reach to A 11th: Ab, the flat 7 of Bb"},
+        {"at": 113.81, "text": "Solo 2: stop time again"},
+        {"at": 119.56, "text": "Shuffle back on Eb"},
+        {"at": 123.14, "text": "Flat 7: A 11th"},
+        {"at": 160.06, "text": "Low F at the 1st fret"},
+        {"at": 162.98, "text": "Back to Bb at the 6th"},
+        {"at": 164.99, "text": "Last hit. Let it ring"}
+      ]
+    }
+  ]
+}

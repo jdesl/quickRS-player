@@ -476,6 +476,7 @@ pub fn demo_manifest(name: &str, dlc: &str, path_bass: i32) -> Vec<u8> {
             "SongAsset": format!("urn:application:musicgame-song:{dlc}_{lower}"),
             "SongXml": format!("urn:application:xml:{dlc}_{lower}"),
             "Tuning": tuning, "CapoFret": 0, "SongLength": 6.5,
+            "DynamicVisualDensity": [5.0, 2.0],
             "ArrangementProperties": {"pathBass": path_bass, "bonusArr": 0}
         }}},
         "ModelName": "RSEnumerable_Song"

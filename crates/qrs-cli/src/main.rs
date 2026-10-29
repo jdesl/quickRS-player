@@ -6,6 +6,13 @@
 //!   quickrs-cli json song --arr lead [-o chart.json] [--indent 2]
 //!
 //!   quickrs-cli feedpak song.psarc [-o OUT.feedpak] [--song-key KEY] [--dir]
+//!   quickrs-cli lessons check [lesson.json ...] [--no-builtin] [--config C] [--dir D] [--index I]
+//!   quickrs-cli sections song --arr rhythm [--spans "a-b,c-d"] [--novel a-b] [--bars]
+//!   quickrs-cli take take.wav song --arr lead --from A --to B [--speed S] [--offset-ms N] [--json out.json]
+//!   quickrs-cli take-check song --arr lead --from A --to B [--tone dry|clean|...] [--out-dir D]
+//!   quickrs-cli transcribe recording.wav [--from s] [--to s]
+//!   quickrs-cli jam render [-o DIR] [--key A --scale natural-minor --chords "i VI III VII" --bpm N] / jam scale
+//!   quickrs-cli sums quickRS-0.2.0-windows-x64.zip [more.zip ...] [-o SHA256SUMS.txt]
 //!
 //! tab and json also accept a loose .sng or .xml arrangement file.
 
@@ -17,9 +24,17 @@ use clap::{Parser, Subcommand};
 use qrs_formats::{Keys, Package, ascii_tab, load_keys, package::Format, psarc::Psarc, sng};
 
 mod audio_cmds;
+mod board_cmd;
+mod board_rigs;
+mod chords_cmd;
+mod jam_cmd;
+#[cfg(feature = "lessons")]
+mod lessons_cmd;
 mod library_cmd;
 #[cfg(feature = "nux")]
 mod mg300_cmd;
+mod sections_cmd;
+mod take_cmd;
 mod verify;
 
 #[derive(Parser)]
@@ -116,8 +131,29 @@ enum Cmd {
     Play(audio_cmds::PlayArgs),
     /// Hear a passage of a part on the synth guitar (or write it as a WAV)
     Synth(audio_cmds::SynthArgs),
+    /// The pedalboard: list its models, or render a listening set (riffs through every model and starting
+    /// board, or a song's part through its own tones) as WAVs
+    Board(board_cmd::Args),
+    /// The amp room's jam engine offline: render drum styles, the click, a drone, a chord loop and a looper demo as
+    /// WAVs, or print a scale's fretboard map
+    Jam(jam_cmd::Args),
+    /// Which bars and sections of a part repeat: bar patterns, a similarity matrix, the bars that differ
+    Sections(sections_cmd::Args),
+    /// Analyse a take (a recording of the guitar over a stretch) against the chart: right, wrong (and what was
+    /// played), missed, extra, timing, bar by bar, the problems in words, the chart's tab and yours
+    Take(take_cmd::TakeArgs),
+    /// Check the take analysis on the synth: a passage played clean and with errors put in
+    TakeCheck(take_cmd::CheckArgs),
+    /// Every pluck in a recording with its pitch and a string/fret (no chart)
+    Transcribe(take_cmd::TranscribeArgs),
+    /// The chord-scoring bench: strummed chords on the synth (sloppy, partial, distorted, wrong) scored live
+    Chords(chords_cmd::Args),
     /// Scan the library folders like the app (psarc and feedpak), group duplicates, report
     Library(library_cmd::Args),
+    /// Lessons: check every item against the library (song, part, stretch, phrase, scale shape)
+    #[cfg(feature = "lessons")]
+    #[command(subcommand)]
+    Lessons(lessons_cmd::Cmd),
     /// The NUX MG-300 MKII: status, backup, decode a backup, switch preset, restore
     #[cfg(feature = "nux")]
     #[command(subcommand)]
@@ -154,6 +190,16 @@ enum Cmd {
     /// Load every song in the library folders (psarc and feedpak), every part at several difficulties, and
     /// report problems. With --python, also compare each chart with the Python reference's output.
     VerifyLibrary(verify::Args),
+    /// Write SHA256SUMS.txt for release assets (the updater checks each download against it, P20.1):
+    /// `<sha256 hex>  <file name>` per line, sha256sum's format
+    Sums {
+        /// the files (the release's zips)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// where to write it (default: SHA256SUMS.txt next to the first file; "-" prints it)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn resolution(s: &str) -> Result<usize, String> {
@@ -163,16 +209,23 @@ fn resolution(s: &str) -> Result<usize, String> {
     }
 }
 
-fn exe_dir() -> Vec<PathBuf> {
-    std::env::current_exe()
+/// Where keys.json is looked for after the current folder: next to the exe, then quickRS's data folder (where the app
+/// keeps it; a Mac app bundle has nothing next to the exe).
+fn keys_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .into_iter()
-        .collect()
+        .collect();
+    let data = qrs_library::DataDir::locate().root;
+    if !dirs.contains(&data) {
+        dirs.push(data);
+    }
+    dirs
 }
 
 pub fn keys(path: Option<&Path>) -> anyhow::Result<Keys> {
-    Ok(load_keys(path, &exe_dir())?)
+    Ok(load_keys(path, &keys_dirs())?)
 }
 
 fn size(n: u64) -> String {
@@ -369,6 +422,9 @@ fn load(
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    if let Cmd::Sums { files, output } = &cli.command {
+        return cmd_sums(files, output.as_deref());
+    }
     let keys = keys(cli.keys.as_deref())?;
     match cli.command {
         Cmd::Info { file, files } => cmd_info(&keys, &file, files),
@@ -476,13 +532,38 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Devices(args) => audio_cmds::devices(args),
         Cmd::Play(args) => audio_cmds::play(&keys, args),
         Cmd::Library(args) => library_cmd::run(&keys, args),
+        #[cfg(feature = "lessons")]
+        Cmd::Lessons(c) => lessons_cmd::run(&keys, c),
         #[cfg(feature = "nux")]
         Cmd::Mg300(c) => mg300_cmd::run(c),
+        Cmd::Board(args) => board_cmd::run(&keys, args),
+        Cmd::Jam(args) => jam_cmd::run(args),
         Cmd::Synth(args) => {
             let arr = load(&keys, &args.file, args.arr.as_deref(), args.mastery)?;
             audio_cmds::synth(&arr, args)
         }
+        Cmd::Sections(args) => {
+            let arr = load(&keys, &args.file, args.arr.as_deref(), args.mastery)?;
+            sections_cmd::run(&arr, args)
+        }
+        Cmd::Take(args) => {
+            let arr = load(&keys, &args.song, args.arr.as_deref(), 1.0)?;
+            take_cmd::take(arr, args)
+        }
+        Cmd::TakeCheck(args) => {
+            let arr = load(&keys, &args.song, args.arr.as_deref(), args.mastery)?;
+            take_cmd::check(arr, args)
+        }
+        Cmd::Transcribe(args) => take_cmd::transcribe(args),
+        Cmd::Chords(args) => {
+            let song = match &args.song {
+                Some(f) => Some(load(&keys, f, args.arr.as_deref(), 1.0)?),
+                None => None,
+            };
+            chords_cmd::run_bench(song, &args)
+        }
         Cmd::VerifyLibrary(args) => verify::run(&keys, args),
+        Cmd::Sums { .. } => Ok(()), // (done before the keys are read: a release machine has none)
     }
 }
 
@@ -550,4 +631,36 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// SHA256SUMS.txt for a release (the format `qrs-app`'s update.rs `parse_sums` reads).
+fn cmd_sums(files: &[PathBuf], output: Option<&Path>) -> anyhow::Result<()> {
+    use sha2::{Digest, Sha256};
+    let mut text = String::new();
+    for f in files {
+        let bytes = std::fs::read(f).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
+        let hex: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let name = f
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        text.push_str(&format!(
+            "{hex}  {name}
+"
+        ));
+    }
+    let out = match output {
+        Some(p) if p == Path::new("-") => {
+            print!("{text}");
+            return Ok(());
+        }
+        Some(p) => p.to_path_buf(),
+        None => files[0].parent().unwrap_or(Path::new(".")).join("SHA256SUMS.txt"),
+    };
+    std::fs::write(&out, &text)?;
+    println!("wrote {} ({} files)", out.display(), files.len());
+    Ok(())
 }

@@ -205,6 +205,7 @@ pub fn parse_xml(source: &[u8], mastery: f64) -> Result<Arrangement> {
         .into_iter()
         .map(|pi| (f(pi, "time", 0.0), i(pi, "phraseId", 0)))
         .collect();
+    arr.phrases = crate::model::sorted_times(iterations.iter().map(|it| it.0));
 
     let mut levels: BTreeMap<i32, Vec<Node>> = BTreeMap::new();
     for level in path(root, "levels", "level") {
@@ -292,6 +293,7 @@ pub fn parse_xml(source: &[u8], mastery: f64) -> Result<Arrangement> {
             sustain,
             frets: tpl.map(|t| t.frets.clone()).unwrap_or_default(),
             fingers: tpl.map(|t| t.fingers.clone()).unwrap_or_default(),
+            high_density: i(el, "highDensity", 0) > 0,
         });
     }
     arr.notes

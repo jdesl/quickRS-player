@@ -26,14 +26,16 @@ pub struct Args {
     pub list: bool,
 }
 
-pub fn run(keys: &Keys, a: Args) -> anyhow::Result<()> {
-    let mut dirs = a.dirs.clone();
+/// The song folders to scan: `dirs` if any, else the config's (`config`, else the app's own), each with its
+/// sibling feedpak folder, as the app scans them.
+pub fn folders(config: Option<&std::path::Path>, dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut dirs = dirs.to_vec();
     if dirs.is_empty() {
-        let cfg = match &a.config {
+        let cfg = match config {
             Some(p) => Config::load(p),
             None => Config::load(qrs_library::DataDir::locate().config()),
         };
-        dirs = cfg.library_dirs();
+        return cfg.scan_dirs();
     }
     for d in dirs.clone() {
         if let Some(f) = config::sibling_feedpak_dir(&d)
@@ -42,6 +44,11 @@ pub fn run(keys: &Keys, a: Args) -> anyhow::Result<()> {
             dirs.push(f);
         }
     }
+    dirs
+}
+
+pub fn run(keys: &Keys, a: Args) -> anyhow::Result<()> {
+    let dirs = folders(a.config.as_deref(), &a.dirs);
     println!("folders:");
     for d in &dirs {
         println!("  {}", d.display());

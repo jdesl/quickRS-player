@@ -41,6 +41,11 @@ impl Previewer {
         }
     }
 
+    /// New keys (added in Settings, or a keys file appeared).
+    pub fn set_keys(&mut self, keys: Keys) {
+        self.keys = keys;
+    }
+
     pub fn want(&self) -> Option<String> {
         self.want.lock().ok().and_then(|w| w.clone())
     }

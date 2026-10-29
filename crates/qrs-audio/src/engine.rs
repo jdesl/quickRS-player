@@ -9,7 +9,7 @@
 //! Everything the app sets is also kept here, so a reopened stream starts exactly where the old one was.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -19,9 +19,15 @@ use parking_lot::Mutex;
 use crate::backend::{self, Backend, BufferSize, DeviceId, InputRequest, OutputRequest, Stream, StreamInfo};
 use crate::clock::now_ns;
 use crate::decode::{SongBuffer, resample};
+use crate::jam::{
+    BackingClip, BackingSpec, ClickParams, DrumKit, DrumParams, JamState, LoopAction, LoopState,
+    LooperSettings, RewindRing, RewindSettings, RewindSource,
+};
 use crate::rt::input::{InputConfig, InputSide, MonitorSink};
+use crate::rt::jam::{JamCmd, LoopStore};
 use crate::rt::onset::Onset;
 use crate::rt::output::{Cushion, MonitorSource, OutputSide, OutputState};
+use crate::rt::record::RecordTap;
 use crate::rt::{Clip, Duplex, InCmd, LinearResampler, OutCmd, Shared, StretchBuffer, Trash};
 use crate::tone::{ToneSpec, make_tone};
 
@@ -91,6 +97,10 @@ pub struct Meters {
     pub channels: [f32; crate::rt::MAX_IN_CHANNELS],
     pub channel_count: usize,
     pub output_peak: f32,
+    /// The guitar's peak after the tone (the pedalboard's output).
+    pub tone_peak: f32,
+    /// Input callbacks that clipped so far (the interface's gain too high); it only counts up.
+    pub clips: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -115,6 +125,7 @@ struct Persist {
     input_gain: f32,
     onset_floor: f32,
     tone: ToneSpec,
+    jam: JamPersist,
 }
 
 impl Default for Persist {
@@ -130,7 +141,59 @@ impl Default for Persist {
             input_gain: 1.0,
             onset_floor: 0.004,
             tone: ToneSpec::AsIs,
+            jam: JamPersist::default(),
         }
+    }
+}
+
+/// The jam as the app set it (P22.4), kept to rebuild a reopened output.
+#[derive(Clone)]
+struct JamPersist {
+    bpm: f64,
+    beats_per_bar: u32,
+    running: bool,
+    click: ClickParams,
+    drums: DrumParams,
+    kit: Option<Arc<DrumKit>>,
+    backing: Option<BackingSpec>,
+    backing_clip: Option<Arc<BackingClip>>,
+    /// Bumped by every change the backing must be rendered again for (a render that finishes late is dropped).
+    backing_gen: u64,
+    backing_gain: f32,
+    looper: Option<LooperSettings>,
+    loop_gain: f32,
+    reamp: bool,
+    rewind: Option<(RewindSettings, Arc<RewindRing>)>,
+    /// The record tap while a recording runs (P23.9; not part of the jam, but kept and resent the same way).
+    record: Option<Arc<RecordTap>>,
+}
+
+impl Default for JamPersist {
+    fn default() -> Self {
+        JamPersist {
+            bpm: 120.0,
+            beats_per_bar: 4,
+            running: false,
+            click: ClickParams::default(),
+            drums: DrumParams::default(),
+            kit: None,
+            backing: None,
+            backing_clip: None,
+            backing_gen: 0,
+            backing_gain: 0.6,
+            looper: None,
+            loop_gain: 1.0,
+            reamp: false,
+            rewind: None,
+            record: None,
+        }
+    }
+}
+
+impl JamPersist {
+    /// The guitar goes to the output even unmonitored (the looper, Rewind or a recording wants it).
+    fn feed(&self) -> bool {
+        self.looper.is_some() || self.rewind.is_some() || self.record.is_some()
     }
 }
 
@@ -153,16 +216,134 @@ impl Ctl {
             .preview_started
             .fetch_max(self.preview_issued, Ordering::Relaxed);
         self.out_tx = tx;
+        if self.out_tx.is_some() {
+            self.resend_jam();
+        }
+    }
+
+    fn jam(&mut self, cmd: JamCmd) -> bool {
+        match self.out_tx.as_mut() {
+            Some(tx) => tx.push(OutCmd::Jam(cmd)).is_ok(),
+            None => false,
+        }
+    }
+
+    /// The drum kit at the output's rate (made the first time the jam needs it).
+    fn ensure_kit(&mut self) {
+        let rate = self.rate;
+        if self.persist.jam.kit.as_ref().is_none_or(|k| k.rate != rate) {
+            let kit = Arc::new(DrumKit::new(rate));
+            self.persist.jam.kit = Some(kit.clone());
+            self.jam(JamCmd::Kit(kit));
+        }
+    }
+
+    /// A new output side starts with nothing: give it the jam as it was (a loop's layers don't survive a reopen;
+    /// Rewind's ring does, unless the rate changed).
+    fn resend_jam(&mut self) {
+        let rate = self.rate;
+        let j = self.persist.jam.clone();
+        if let Some(k) = j.kit.as_ref() {
+            let kit = if k.rate == rate {
+                k.clone()
+            } else {
+                let k = Arc::new(DrumKit::new(rate));
+                self.persist.jam.kit = Some(k.clone());
+                k
+            };
+            self.jam(JamCmd::Kit(kit));
+        }
+        self.jam(JamCmd::Tempo(j.bpm));
+        self.jam(JamCmd::Meter(j.beats_per_bar));
+        self.jam(JamCmd::Click(j.click));
+        self.jam(JamCmd::Drums(j.drums));
+        self.jam(JamCmd::BackingGain(j.backing_gain));
+        if let Some(spec) = j.backing.as_ref() {
+            let clip = match j.backing_clip {
+                Some(c) if c.rate == rate => c,
+                _ => {
+                    let c = Arc::new(crate::jam::backing::render(spec, j.bpm, j.beats_per_bar, rate));
+                    self.persist.jam.backing_clip = Some(c.clone());
+                    c
+                }
+            };
+            self.jam(JamCmd::Backing(Some(clip)));
+        }
+        if let Some(s) = j.looper {
+            self.jam(JamCmd::LoopStore(Some(Box::new(LoopStore::new(rate, s)))));
+        }
+        self.jam(JamCmd::LoopGain(j.loop_gain));
+        if j.reamp {
+            let tone = make_tone(&self.persist.tone, rate);
+            self.jam(JamCmd::ReampTone(tone));
+        }
+        self.jam(JamCmd::Reamp(j.reamp));
+        if let Some((s, ring)) = j.rewind {
+            let ring = if ring.rate == rate {
+                ring
+            } else {
+                let r = Arc::new(RewindRing::new(rate, s.minutes * 60.0, s.keep));
+                self.persist.jam.rewind = Some((s, r.clone()));
+                r
+            };
+            self.jam(JamCmd::Rewind(Some(ring)));
+        }
+        if j.running {
+            self.jam(JamCmd::Start { count_in: 0 });
+        }
+        if let Some(tap) = j.record {
+            // (a new rate: a new tap, which the recorder notices and follows)
+            let tap = if tap.rate == rate {
+                tap
+            } else {
+                let t = Arc::new(RecordTap::new(rate, RECORD_TAP_SECONDS));
+                self.persist.jam.record = Some(t.clone());
+                t
+            };
+            if let Some(tx) = self.out_tx.as_mut() {
+                let _ = tx.push(OutCmd::Record(Some(tap)));
+            }
+        }
     }
 }
+
+/// Seconds the record tap holds: how long the recorder's thread may stall before frames are lost.
+pub const RECORD_TAP_SECONDS: f64 = 20.0;
 
 struct Inner {
     shared: Arc<Shared>,
     ctl: Mutex<Ctl>,
     tx: Sender<Msg>,
+    /// Routes sent to the control thread, and routes it has finished opening (`settle` waits for them to meet).
+    opens_sent: AtomicU64,
+    opens_done: AtomicU64,
     events: Receiver<Event>,
-    last_pos: Mutex<f64>,
+    last_pos: Mutex<PosGuard>,
 }
+
+/// What `Engine::position` remembers between reads.
+#[derive(Clone, Copy)]
+struct PosGuard {
+    /// The last position given out (it never steps backwards while playing).
+    last: f64,
+    /// The newest seek or play-from sent (its `OutCmd::Mark`), and when.
+    sent: u64,
+    sent_at: Option<Instant>,
+}
+
+impl PosGuard {
+    /// A jump the transport was told to make: the position is `t` from now on.
+    fn jump(&mut self, t: f64, mark: Option<u64>) {
+        self.last = t;
+        if let Some(n) = mark {
+            self.sent = n;
+            self.sent_at = Some(Instant::now());
+        }
+    }
+}
+
+/// How long a seek may wait for the audio thread before the clock is believed again (a lost queue, no device).
+const SEEK_WAIT: Duration = Duration::from_millis(300);
 
 enum Msg {
     Open(Route),
@@ -202,8 +383,14 @@ impl Engine {
                 preview_issued: 0,
             }),
             tx,
+            opens_sent: AtomicU64::new(0),
+            opens_done: AtomicU64::new(0),
             events: ev_rx,
-            last_pos: Mutex::new(0.0),
+            last_pos: Mutex::new(PosGuard {
+                last: 0.0,
+                sent: 0,
+                sent_at: None,
+            }),
         });
         let worker = inner.clone();
         let thread = std::thread::Builder::new()
@@ -223,6 +410,7 @@ impl Engine {
         if let Some(i) = &route.input {
             self.inner.ctl.lock().persist.channel = i.channel;
         }
+        self.inner.opens_sent.fetch_add(1, Ordering::AcqRel);
         let _ = self.inner.tx.send(Msg::Open(route));
     }
 
@@ -230,11 +418,11 @@ impl Engine {
     pub fn settle(&self, timeout: Duration) -> bool {
         let start = Instant::now();
         while start.elapsed() < timeout {
-            if self.inner.tx.is_empty() && self.inner.ctl.lock().out_tx.is_some() {
-                std::thread::sleep(Duration::from_millis(20));
-                if self.inner.tx.is_empty() {
-                    return true;
-                }
+            // every route sent has been opened (the queue being empty isn't enough: the last one may be opening)
+            let opened = self.inner.opens_done.load(Ordering::Acquire)
+                >= self.inner.opens_sent.load(Ordering::Acquire);
+            if opened && self.inner.tx.is_empty() && self.inner.ctl.lock().out_tx.is_some() {
+                return true;
             }
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -254,11 +442,20 @@ impl Engine {
         self.inner.events.try_iter().collect()
     }
 
-    fn out(&self, cmd: OutCmd) {
+    fn out(&self, cmd: OutCmd) -> bool {
         let mut c = self.inner.ctl.lock();
-        if let Some(tx) = c.out_tx.as_mut() {
-            let _ = tx.push(cmd);
+        match c.out_tx.as_mut() {
+            Some(tx) => tx.push(cmd).is_ok(),
+            None => false,
         }
+    }
+
+    /// After a seek or play-from: a mark the audio thread hands back once it has applied it, so `position` holds
+    /// at the new time until the clock shows it (None: nothing will hand it back).
+    fn mark(&self) -> Option<u64> {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        self.out(OutCmd::Mark(n)).then_some(n)
     }
 
     fn inp(&self, cmd: InCmd) {
@@ -284,8 +481,22 @@ impl Engine {
             c.persist.stretched = None;
             c.persist.speed = 1.0;
         }
-        *self.inner.last_pos.lock() = 0.0;
+        self.inner.last_pos.lock().last = 0.0;
         self.out(OutCmd::Song(Some(song)));
+    }
+
+    /// Swap the song for another version of it (a new stem mix, the same length) without a jump: the position,
+    /// whether it's playing, and any slowed-down copy stay as they are.
+    pub fn replace_song(&self, song: SongBuffer) {
+        let rate = self.rate();
+        let song = if song.rate == rate {
+            song
+        } else {
+            resample_song(&song, rate)
+        };
+        let song = Arc::new(song);
+        self.inner.ctl.lock().persist.song = Some(song.clone());
+        self.out(OutCmd::Replace(song));
     }
 
     pub fn unload(&self) {
@@ -314,12 +525,14 @@ impl Engine {
     }
 
     pub fn play(&self, from: Option<f64>) {
-        if let Some(t) = from {
-            *self.inner.last_pos.lock() = t;
-        } else if self.finished() {
-            *self.inner.last_pos.lock() = 0.0;
+        if from.is_none() && self.finished() {
+            self.inner.last_pos.lock().last = 0.0;
         }
         self.out(OutCmd::Play(from));
+        if let Some(t) = from {
+            let m = self.mark();
+            self.inner.last_pos.lock().jump(t, m);
+        }
         self.wait_applied(|s| s.playing.load(Ordering::Relaxed));
     }
 
@@ -337,8 +550,9 @@ impl Engine {
     }
 
     pub fn seek(&self, t: f64) {
-        *self.inner.last_pos.lock() = t.max(0.0);
         self.out(OutCmd::Seek(t.max(0.0)));
+        let m = self.mark();
+        self.inner.last_pos.lock().jump(t.max(0.0), m);
     }
 
     /// Commands reach the audio thread within a block; transport calls wait up to ~50 ms for it so the next
@@ -362,17 +576,29 @@ impl Engine {
         self.inner.shared.buffering.load(Ordering::Relaxed)
     }
 
-    /// The song time being heard now (seconds, original tempo). Never steps backwards while playing.
+    /// The song time being heard now (seconds, original tempo). Never steps backwards while playing, except to a
+    /// seek, which it shows at once (until the audio thread has applied it, the seek's time).
     pub fn position(&self) -> f64 {
+        let applied = self.inner.shared.seek_mark.load(Ordering::Acquire);
         let c = self.inner.shared.clock.load();
         let t = c.at(now_ns());
-        let mut last = self.inner.last_pos.lock();
+        let mut g = self.inner.last_pos.lock();
+        if let Some(at) = g.sent_at {
+            if applied < g.sent && at.elapsed() < SEEK_WAIT {
+                // the clock is still the one from before the seek
+                return g.last;
+            }
+            g.sent_at = None;
+            // the seek is heard: take the clock as it is, even if it's a hair before the seek's time
+            g.last = t;
+            return t;
+        }
         if c.playing && c.rate > 0.0 {
-            let t = t.max(*last);
-            *last = t;
+            let t = t.max(g.last);
+            g.last = t;
             t
         } else {
-            *last = t;
+            g.last = t;
             t
         }
     }
@@ -461,6 +687,16 @@ impl Engine {
             let prev = std::mem::replace(&mut c.persist.tone, tone.clone());
             (c.status.input.as_ref().map(|i| i.rate).unwrap_or(c.rate), prev)
         };
+        self.reamp_follow(&previous, &tone);
+        // a board edited in place: its blocks' changes go to the running board, so tails ring on
+        if let (Some(old), Some(new)) = (previous.board(), tone.board())
+            && let Some(cmds) = crate::board::diff(old, new, rate)
+        {
+            for c in cmds {
+                self.inp(InCmd::Board(c));
+            }
+            return;
+        }
         let same_chain = previous.params().is_some() && tone.params().is_some();
         match (same_chain, tone.params()) {
             (true, Some(p)) => self.inp(InCmd::ToneParams(p)),
@@ -559,6 +795,8 @@ impl Engine {
             level: s.in_level.get(),
             channel_count: s.in_channels.load(Ordering::Relaxed) as usize,
             output_peak: s.out_peak.get(),
+            tone_peak: s.tone_peak.get(),
+            clips: s.in_clips.load(Ordering::Relaxed),
             ..Default::default()
         };
         for (i, c) in s.ch_peaks.iter().enumerate() {
@@ -583,6 +821,303 @@ impl Engine {
         s.dropouts.store(0, Ordering::Relaxed);
         s.mon_gaps.store(0, Ordering::Relaxed);
         s.max_work_ns.store(0, Ordering::Relaxed);
+    }
+
+    // -- the jam (P22.4): metronome, drums, backing, looper, Rewind ----------------------------------------------
+    fn jam_cmd(&self, cmd: JamCmd) -> bool {
+        self.inner.ctl.lock().jam(cmd)
+    }
+
+    /// The jam's tempo (20..400 bpm), applied where it's heard next; the backing is rendered again for it.
+    pub fn set_jam_tempo(&self, bpm: f64) {
+        let bpm = bpm.clamp(20.0, 400.0);
+        self.inner.ctl.lock().persist.jam.bpm = bpm;
+        self.jam_cmd(JamCmd::Tempo(bpm));
+        self.render_backing();
+    }
+
+    pub fn jam_tempo(&self) -> f64 {
+        self.inner.ctl.lock().persist.jam.bpm
+    }
+
+    /// Beats in a bar (1..16).
+    pub fn set_jam_meter(&self, beats: u32) {
+        let beats = beats.clamp(1, 16);
+        self.inner.ctl.lock().persist.jam.beats_per_bar = beats;
+        self.jam_cmd(JamCmd::Meter(beats));
+        self.render_backing();
+    }
+
+    /// Start the click, drums and backing from bar 0 (after `count_in` bars of click).
+    pub fn jam_play(&self, count_in: u32) {
+        let mut c = self.inner.ctl.lock();
+        c.ensure_kit();
+        c.persist.jam.running = true;
+        c.jam(JamCmd::Start { count_in });
+    }
+
+    pub fn jam_stop(&self) {
+        self.inner.ctl.lock().persist.jam.running = false;
+        self.jam_cmd(JamCmd::Stop);
+    }
+
+    pub fn set_click(&self, p: ClickParams) {
+        let mut c = self.inner.ctl.lock();
+        c.persist.jam.click = p;
+        c.ensure_kit();
+        c.jam(JamCmd::Click(p));
+    }
+
+    pub fn click(&self) -> ClickParams {
+        self.inner.ctl.lock().persist.jam.click
+    }
+
+    pub fn set_drums(&self, p: DrumParams) {
+        let mut c = self.inner.ctl.lock();
+        c.persist.jam.drums = p;
+        c.ensure_kit();
+        c.jam(JamCmd::Drums(p));
+    }
+
+    pub fn drums(&self) -> DrumParams {
+        self.inner.ctl.lock().persist.jam.drums
+    }
+
+    /// A drone or chord loop at the jam's tempo (None: off). It's rendered on a worker thread and fades in when
+    /// ready (`backing_ready`).
+    pub fn set_backing(&self, spec: Option<BackingSpec>) {
+        let off = spec.is_none();
+        self.inner.ctl.lock().persist.jam.backing = spec;
+        if off {
+            let mut c = self.inner.ctl.lock();
+            c.persist.jam.backing_gen += 1;
+            c.persist.jam.backing_clip = None;
+            c.jam(JamCmd::Backing(None));
+        } else {
+            self.render_backing();
+        }
+    }
+
+    pub fn backing(&self) -> Option<BackingSpec> {
+        self.inner.ctl.lock().persist.jam.backing.clone()
+    }
+
+    /// The backing set last has been rendered and handed to the audio thread.
+    pub fn backing_ready(&self) -> bool {
+        let c = self.inner.ctl.lock();
+        let j = &c.persist.jam;
+        j.backing.is_none()
+            || j.backing_clip.as_ref().is_some_and(|b| {
+                (b.bpm - j.bpm).abs() < 1e-9 && b.beats_per_bar == j.beats_per_bar && b.rate == c.rate
+            })
+    }
+
+    pub fn set_backing_gain(&self, g: f32) {
+        self.inner.ctl.lock().persist.jam.backing_gain = g;
+        self.jam_cmd(JamCmd::BackingGain(g));
+    }
+
+    fn render_backing(&self) {
+        let (spec, bpm, bpb, rate, generation) = {
+            let mut c = self.inner.ctl.lock();
+            let rate = c.rate;
+            let j = &mut c.persist.jam;
+            let Some(spec) = j.backing.clone() else { return };
+            j.backing_gen += 1;
+            (spec, j.bpm, j.beats_per_bar, rate, j.backing_gen)
+        };
+        let weak = Arc::downgrade(&self.inner);
+        let _ = std::thread::Builder::new()
+            .name("qrs-jam-backing".into())
+            .spawn(move || {
+                let clip = Arc::new(crate::jam::backing::render(&spec, bpm, bpb, rate));
+                let Some(inner) = weak.upgrade() else { return };
+                let mut c = inner.ctl.lock();
+                if c.persist.jam.backing_gen == generation && c.rate == rate {
+                    c.persist.jam.backing_clip = Some(clip.clone());
+                    c.jam(JamCmd::Backing(Some(clip)));
+                }
+            });
+    }
+
+    /// Give the looper its memory (made here, off the audio thread: 92 MB for 60 s x 8 layers at 48 kHz), or take
+    /// it away (None). A loop playing is cleared.
+    pub fn set_looper(&self, s: Option<LooperSettings>) {
+        let mut c = self.inner.ctl.lock();
+        let had_feed = c.persist.jam.feed();
+        c.persist.jam.looper = s;
+        let store = s.map(|s| Box::new(LoopStore::new(c.rate, s)));
+        c.jam(JamCmd::LoopStore(store));
+        let feed = c.persist.jam.feed();
+        drop(c);
+        if feed != had_feed {
+            self.inp(InCmd::Feed(feed));
+        }
+    }
+
+    /// A looper button (see `LoopAction`); it acts on the next block heard.
+    pub fn looper(&self, a: LoopAction) {
+        self.jam_cmd(JamCmd::Loop(a));
+    }
+
+    pub fn set_loop_gain(&self, g: f32) {
+        self.inner.ctl.lock().persist.jam.loop_gain = g;
+        self.jam_cmd(JamCmd::LoopGain(g));
+    }
+
+    /// Play the loop's dry layers through the current rig (a copy of it) instead of as they were recorded.
+    pub fn set_reamp(&self, on: bool) {
+        let mut c = self.inner.ctl.lock();
+        if on && !c.persist.jam.reamp {
+            let tone = make_tone(&c.persist.tone, c.rate);
+            c.jam(JamCmd::ReampTone(tone));
+        }
+        c.persist.jam.reamp = on;
+        c.jam(JamCmd::Reamp(on));
+    }
+
+    pub fn reamp(&self) -> bool {
+        self.inner.ctl.lock().persist.jam.reamp
+    }
+
+    /// The re-amp rig follows every tone change (a board edited in place keeps its tails).
+    fn reamp_follow(&self, previous: &ToneSpec, tone: &ToneSpec) {
+        let mut c = self.inner.ctl.lock();
+        if !c.persist.jam.reamp {
+            return;
+        }
+        let rate = c.rate;
+        if let (Some(old), Some(new)) = (previous.board(), tone.board())
+            && let Some(cmds) = crate::board::diff(old, new, rate)
+        {
+            for cmd in cmds {
+                c.jam(JamCmd::ReampBoard(cmd));
+            }
+            return;
+        }
+        match (previous.params().is_some(), tone.params()) {
+            (true, Some(p)) => c.jam(JamCmd::ReampParams(p)),
+            _ => c.jam(JamCmd::ReampTone(make_tone(tone, rate))),
+        };
+    }
+
+    /// Keep the last `minutes` of the guitar (dry, through the rig, or both: 115 MB for 10 minutes of both at
+    /// 48 kHz), or stop (None). A new setting starts an empty ring.
+    pub fn set_rewind(&self, s: Option<RewindSettings>) {
+        let mut c = self.inner.ctl.lock();
+        let had_feed = c.persist.jam.feed();
+        let ring = s.map(|s| Arc::new(RewindRing::new(c.rate, s.minutes.clamp(0.1, 60.0) * 60.0, s.keep)));
+        c.persist.jam.rewind = s.zip(ring.clone());
+        c.jam(JamCmd::Rewind(ring));
+        let feed = c.persist.jam.feed();
+        drop(c);
+        if feed != had_feed {
+            self.inp(InCmd::Feed(feed));
+        }
+    }
+
+    /// Copy what the output plays into a record tap (on), or stop (off). The tap is made here (20 s of stereo
+    /// 16-bit, 3.8 MB at 48 kHz); `crate::recorder::Recorder` drains it to a file. Turning it on while it's on
+    /// keeps the tap there is.
+    pub fn set_record(&self, on: bool) -> Option<Arc<RecordTap>> {
+        let mut c = self.inner.ctl.lock();
+        let had_feed = c.persist.jam.feed();
+        if on && let Some(t) = c.persist.jam.record.clone() {
+            return Some(t);
+        }
+        let tap = on.then(|| Arc::new(RecordTap::new(c.rate, RECORD_TAP_SECONDS)));
+        c.persist.jam.record = tap.clone();
+        if let Some(tx) = c.out_tx.as_mut() {
+            let _ = tx.push(OutCmd::Record(tap.clone()));
+        }
+        let feed = c.persist.jam.feed();
+        drop(c);
+        if feed != had_feed {
+            self.inp(InCmd::Feed(feed));
+        }
+        tap
+    }
+
+    /// The record tap while one is on (a new one after an output reopened at another rate).
+    pub fn record_tap(&self) -> Option<Arc<RecordTap>> {
+        self.inner.ctl.lock().persist.jam.record.clone()
+    }
+
+    /// The Rewind ring (frames addressed from when it was made; `RewindRing::written` is now).
+    pub fn rewind(&self) -> Option<Arc<RewindRing>> {
+        self.inner
+            .ctl
+            .lock()
+            .persist
+            .jam
+            .rewind
+            .as_ref()
+            .map(|r| r.1.clone())
+    }
+
+    /// Save what was played from `from_ago` to `to_ago` seconds ago as a mono WAV.
+    pub fn save_rewind(
+        &self,
+        path: &std::path::Path,
+        from_ago: f64,
+        to_ago: f64,
+        src: RewindSource,
+    ) -> std::io::Result<()> {
+        let ring = self
+            .rewind()
+            .ok_or_else(|| std::io::Error::other("Rewind is off"))?;
+        let now = ring.written();
+        let at = |ago: f64| now.saturating_sub((ago.max(0.0) * ring.rate as f64) as u64);
+        let (a, b) = (at(from_ago.max(to_ago)), at(from_ago.min(to_ago)));
+        ring.save_wav(path, a.max(ring.oldest()), b, src)
+    }
+
+    /// The waveform of the last `seconds` in `columns` peaks (0..1), oldest first.
+    pub fn rewind_waveform(&self, seconds: f64, columns: usize, src: RewindSource) -> Vec<f32> {
+        let Some(ring) = self.rewind() else {
+            return vec![0.0; columns];
+        };
+        let now = ring.written();
+        let from = now.saturating_sub((seconds.max(0.0) * ring.rate as f64) as u64);
+        ring.waveform(from, now, columns, src)
+    }
+
+    /// The jam as heard now: the beat (for the beat light), the looper, Rewind.
+    pub fn jam(&self) -> JamState {
+        let sh = &self.inner.shared.jam;
+        let clock = sh.clock.load();
+        let beat = clock.at(now_ns());
+        let bpb = sh.beats_per_bar.load(Ordering::Relaxed).max(1);
+        let rate = sh.rate.load(Ordering::Relaxed).max(1) as f64;
+        let bar = (beat / bpb as f64).floor();
+        let in_bar = beat - bar * bpb as f64;
+        let (rewind_seconds, rewind_capacity) = match self.rewind() {
+            Some(r) => ((r.written() as f64 / r.rate as f64).min(r.seconds()), r.seconds()),
+            None => (0.0, 0.0),
+        };
+        let looper = if self.inner.ctl.lock().persist.jam.looper.is_some() {
+            LoopState::from_u32(sh.loop_state.load(Ordering::Relaxed))
+        } else {
+            LoopState::Off
+        };
+        JamState {
+            running: clock.playing,
+            bpm: f64::from_bits(sh.bpm.load(Ordering::Relaxed)),
+            beats_per_bar: bpb,
+            beat,
+            bar: bar as i64,
+            beat_in_bar: (in_bar.floor() as u32).min(bpb - 1),
+            phase: in_bar.fract(),
+            intensity: sh.intensity.get(),
+            looper,
+            loop_pos: sh.loop_pos.load(Ordering::Relaxed) as f64 / rate,
+            loop_len: sh.loop_len.load(Ordering::Relaxed) as f64 / rate,
+            layers: sh.layers.load(Ordering::Relaxed),
+            redo: sh.redo.load(Ordering::Relaxed),
+            loop_latency: sh.loop_delay.load(Ordering::Relaxed) as f64 / rate,
+            rewind_seconds,
+            rewind_capacity,
+        }
     }
 }
 
@@ -612,7 +1147,8 @@ fn resample_song(song: &SongBuffer, rate: u32) -> SongBuffer {
 
 // -- the control thread ------------------------------------------------------------------------------------
 const CMD_QUEUE: usize = 512;
-const MONITOR_QUEUE: usize = 1 << 15;
+/// Samples in the guitar's queue between two devices: (toned, dry) pairs.
+const MONITOR_QUEUE: usize = 1 << 16;
 /// Extra samples held in the guitar cushion between two clocks (measured clean at 128 on the owner's setup).
 const CUSHION_MARGIN: usize = 128;
 const RETRY: Duration = Duration::from_millis(1500);
@@ -648,6 +1184,7 @@ fn control_loop(inner: Arc<Inner>, rx: Receiver<Msg>, events: Sender<Event>) {
                 close_all(&inner, &mut run);
                 run.route = route;
                 open_route(&inner, &mut run, &events);
+                inner.opens_done.fetch_add(1, Ordering::AcqRel);
             }
             Ok(Msg::Shutdown) => {
                 close_all(&inner, &mut run);
@@ -715,6 +1252,7 @@ fn input_side(
             rate: info.rate,
             channel: persist.channel,
             monitor: persist.monitor,
+            feed: persist.jam.feed(),
             input_gain: persist.input_gain,
             onset_floor: persist.onset_floor,
             max_block: info.max_block.max(info.block).max(4096),
@@ -942,6 +1480,7 @@ fn open_input(inner: &Arc<Inner>, run: &mut Running, st: &mut Status) {
         let sink = MonitorSink::Queue {
             tx: mon_tx.take().expect("one input side"),
             resampler: LinearResampler::new(info.rate, out_rate),
+            resampler_dry: LinearResampler::new(info.rate, out_rate),
         };
         input_side(
             inner,

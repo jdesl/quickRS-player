@@ -1,0 +1,292 @@
+{
+  "id": "all-right-now",
+  "number": 5,
+  "course": "Rock and blues foundations",
+  "course_order": 3,
+  "title": "All Right Now, start to finish: major and minor pentatonic",
+  "summary": "A whole classic song: the riff, the chorus, then Paul Kossoff's ninety-second solo in four parts, which moves between the minor and major pentatonic.",
+  "intro": [
+    "This lesson puts everything together on one song. The riff is chord shapes and rhythm. The chorus is power-chord-style double stops. The solo uses bends, vibrato and both pentatonic scales. It's long, and that's the point: by the end you can play a whole classic rock record.",
+    "The big idea is major against minor pentatonic. You met both in Johnny B. Goode; here you hear how different they feel. The minor pentatonic sounds tough and bluesy; the major pentatonic sounds bright and sweet. A major pentatonic uses exactly the notes of F sharp minor pentatonic, so it's a shape you already know, three frets lower than A minor. The difference is which note you treat as home.",
+    "Paul Kossoff uses both. Parts 1 and 4 of the solo are A minor pentatonic, tough and bluesy. Parts 2 and 3 turn sweet, with the major notes F sharp and, in part 3, C sharp. Listen for the change in mood. Learn the parts one at a time, then join them up."
+  ],
+  "tips": [
+    "Major or minor? It's the third that decides. C is the minor third in A, C sharp the major third. Kossoff bends C a little sharp, halfway between, and later bends B all the way up to C sharp.",
+    "Shortcut for the major pentatonic: find the minor box for your key, then slide the whole shape three frets down. Same fingering, sweeter sound.",
+    "Over a major-sounding song like this, minor licks sound bluesy and tough, major licks sound happy. Both work. Mix them.",
+    "Kossoff's vibrato is slow and wide. Copy the speed of it as well as the notes.",
+    "The riff is all about the gaps. Let the chords ring, then stop them dead with the side of your picking hand.",
+    "Long song, so pace yourself: rhythm parts one day, solo parts another, the whole lot when each part is at full speed."
+  ],
+  "credit": "Justin Sandercoe (justinguitar.com) teaches the major pentatonic in his Intermediate Method after the minor pentatonic and bending, with the trick of seeing it as the minor shape three frets lower, and his song lessons build a whole song part by part before playing it through. This lesson follows both ideas. The minor-third curl and the major third bend are standard blues teaching; Paul Kossoff's vibrato is the model for the solo.",
+  "riffs": [
+    {
+      "id": "arn-riff",
+      "kind": "learn",
+      "name": "The riff",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 12.0,
+      "end": 20.15,
+      "about": "Two chord shapes and a lot of space: A, then a D shape over the open A string, then back to A. Big strums, silence in between.",
+      "how": [
+        "The A shape: open A string, fret 2 on the D and G strings, fret 5 on the B and high E strings.",
+        "The D shape: fret 4 on the D string, fret 2 on the G string, fret 3 on the B string. The second time, the G string is played open and the open high E rings too.",
+        "Pick the open A on its own just before each D shape.",
+        "Stop the chords dead in the gaps by relaxing your fretting hand. The silence is the riff."
+      ]
+    },
+    {
+      "id": "arn-chorus",
+      "kind": "learn",
+      "name": "The chorus",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 60.36,
+      "end": 78.2,
+      "about": "Two-note power chords high on the neck on the A and D strings, around the twelfth fret, with two single notes on the low E string between them.",
+      "how": [
+        "A5: A string fret 12, D string fret 14. Same shape as any power chord.",
+        "After three hits, two single notes on the low E string: fret 14, then fret 12.",
+        "Then G5 at fret 10 (A and D strings), and a two-note D chord: A string fret 9 with D string fret 12.",
+        "The chorus ends on an A chord at the twelfth fret. Let it ring until the riff comes back."
+      ]
+    },
+    {
+      "id": "arn-first-half",
+      "kind": "learn",
+      "name": "Intro, verse and chorus",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 12.0,
+      "end": 78.2,
+      "pass": 0.8,
+      "about": "The first minute of the song in one go: two times round the intro riff, the verse (the same riff four more times), and the chorus. Long, steady and all rhythm.",
+      "how": [
+        "The verse is the intro riff again. The singer comes in over it.",
+        "Count the riffs: two in the intro, four in the verse, then the chorus.",
+        "Move up to the twelfth fret for the chorus during the last gap of the verse.",
+        "Keep the gaps silent all the way through. That's what makes it groove."
+      ]
+    },
+    {
+      "id": "arn-solo-1",
+      "kind": "learn",
+      "name": "Solo, part 1: the curl",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 136.15,
+      "end": 151.8,
+      "about": "A minor pentatonic above the twelfth fret. A rocking two-note lick with a tiny curl on the C, then bigger bends climbing up to a held bend on the high E (G up to A) with vibrato.",
+      "how": [
+        "Home position: middle finger on fret 14 of the G string, first finger on fret 13 of the B string.",
+        "The curl: bend the C on the B string at fret 13 a quarter tone. Not to C sharp, just towards it.",
+        "Full-tone bends at fret 15 on the B string (D up to E) and fret 15 on the high E (G up to A).",
+        "One big bend at fret 17 on the B string goes up a tone and a half. Check it against fret 20."
+      ]
+    },
+    {
+      "id": "arn-solo-2",
+      "kind": "learn",
+      "name": "Solo, part 2: slides and space",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 159.93,
+      "end": 181.9,
+      "about": "Kossoff drops right down to the bottom of the neck and plays only a few notes, slowly, sliding between them with deep vibrato. The notes B and F sharp make it sound sweet: this is the major side.",
+      "how": [
+        "Open G string, hammer on to fret 2, then slide between frets 2 and 4 on the G string.",
+        "Then slide between frets 3, 5 and 7 on the B string, with the open high E ringing against fret 7.",
+        "Every held note gets slow, wide vibrato.",
+        "Count the long notes. Most of this part is waiting, and the waiting is the music."
+      ]
+    },
+    {
+      "id": "arn-solo-3",
+      "kind": "learn",
+      "name": "Solo, part 3: the major bend",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 181.91,
+      "end": 205.9,
+      "about": "A long A slid up to fret 10 on the B string, a fast three-note loop around it, then a full bend from B up to C sharp: the major third of A. Bright, joyful, and A major pentatonic all the way.",
+      "how": [
+        "The loop: G string fret 9, hammer on to 11, then B string fret 10. Round and round, evenly.",
+        "The bend: B string fret 12, up a full tone. Check against fret 14.",
+        "After the bends, the slower phrase goes B bend, A with vibrato, F sharp, A with vibrato.",
+        "Hammer-ons with the ring or little finger, hard enough to sound without picking."
+      ]
+    },
+    {
+      "id": "arn-solo-4",
+      "kind": "learn",
+      "name": "Solo, part 4: box 1 up high",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 205.91,
+      "end": 227.0,
+      "about": "The same kind of fast loop, now in box 1 of A minor pentatonic at the seventeenth fret, the same box you'd play at the fifth fret, one octave up. Big full-tone bends at fret 20 on the B and high E strings.",
+      "how": [
+        "The loop: B string fret 17, hammer on to 20, then high E fret 17.",
+        "Bend the B string at fret 20 a full tone, up to A. Check against fret 22.",
+        "Bend the high E at fret 20 a full tone too. Pull the string down towards the floor.",
+        "The end steps down: G bent up to A, then F sharp and E, each with vibrato."
+      ]
+    },
+    {
+      "id": "arn-minor-box",
+      "kind": "scale",
+      "name": "A minor pentatonic, box 1 (17th fret)",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 205.91,
+      "end": 227.0,
+      "about": "Box 1 of A minor, an octave above where Justin first teaches it. Part 4 sits in the top two strings of it; the F sharp near the end is a major note borrowed for the finish. Jam over this part and hear how tough the minor notes sound against the song.",
+      "scale": {
+        "name": "A minor pentatonic",
+        "root": "A",
+        "shape": [
+          [
+            0,
+            17
+          ],
+          [
+            0,
+            20
+          ],
+          [
+            1,
+            17
+          ],
+          [
+            1,
+            19
+          ],
+          [
+            2,
+            17
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            3,
+            17
+          ],
+          [
+            3,
+            19
+          ],
+          [
+            4,
+            17
+          ],
+          [
+            4,
+            20
+          ],
+          [
+            5,
+            17
+          ],
+          [
+            5,
+            20
+          ]
+        ]
+      }
+    },
+    {
+      "id": "arn-major-box",
+      "kind": "scale",
+      "name": "A major pentatonic (around the 10th fret)",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 181.91,
+      "end": 205.9,
+      "about": "A major pentatonic is A, B, C sharp, E and F sharp. It isn't box 1: this shape is where Kossoff plays part 3, with roots at fret 12 on the A string and fret 10 on the B string. The only note outside is the G he slides up from at the start. Jam over the part and compare it with the minor box: same song, brighter mood.",
+      "scale": {
+        "name": "A major pentatonic",
+        "root": "A",
+        "shape": [
+          [
+            0,
+            9
+          ],
+          [
+            0,
+            12
+          ],
+          [
+            1,
+            9
+          ],
+          [
+            1,
+            12
+          ],
+          [
+            2,
+            9
+          ],
+          [
+            2,
+            11
+          ],
+          [
+            3,
+            9
+          ],
+          [
+            3,
+            11
+          ],
+          [
+            4,
+            10
+          ],
+          [
+            4,
+            12
+          ],
+          [
+            5,
+            9
+          ],
+          [
+            5,
+            12
+          ]
+        ]
+      }
+    },
+    {
+      "id": "arn-solo-whole",
+      "kind": "learn",
+      "name": "The whole solo",
+      "artist": "Free",
+      "title": "All Right Now",
+      "part": "Lead",
+      "start": 136.15,
+      "end": 227.0,
+      "pass": 0.8,
+      "about": "All four parts with the gap in the middle: about ninety seconds, from the curl through the quiet part and the major bends to the high finish. The biggest piece in the course so far.",
+      "how": [
+        "Between parts 1 and 2 there are eight seconds of band only. Use them to move your hand down to the nut.",
+        "Between parts 2 and 3, move up to fret 8 of the B string: part 3 starts with a slide from there to fret 10.",
+        "Between parts 3 and 4, jump straight up to the seventeenth fret.",
+        "When the notes are solid, work on the vibrato. That's where it starts to sound like Kossoff."
+      ]
+    }
+  ]
+}

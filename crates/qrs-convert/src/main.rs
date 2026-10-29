@@ -16,7 +16,14 @@ use qrs_ui::text::{self, Style};
 use qrs_ui::theme::t;
 use qrs_ui::widgets::{self, ButtonStyle};
 
+#[cfg(windows)]
 const STEAM_DLC: &str = r"C:\Program Files (x86)\Steam\steamapps\common\Rocksmith2014\dlc";
+/// Where keys.json goes when it's missing (the Windows zip keeps it next to the exe; a Mac app keeps it in quickRS's
+/// data folder, "Open the folder" shows it).
+#[cfg(windows)]
+const KEYS_WHERE: &str = "in this program's folder (see Keys in README.txt)";
+#[cfg(not(windows))]
+const KEYS_WHERE: &str = "in quickRS's data folder (Open the folder shows it)";
 const W: f32 = 760.0;
 const H: f32 = 700.0;
 const PAD: f32 = 28.0;
@@ -34,6 +41,8 @@ struct Progress {
 
 struct App {
     keys: Keys,
+    /// What's wrong with keys.json when it's there but doesn't give both keys.
+    keys_problem: Option<String>,
     keys_dir: PathBuf,
     from: String,
     to: String,
@@ -58,6 +67,24 @@ fn appdata_dir() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("quickRS"))
 }
 
+/// The folder keys.json is looked for in last and offered when it's missing: next to the exe on Windows (the zip),
+/// quickRS's data folder elsewhere (inside a Mac app bundle is no place for it).
+fn keys_home() -> PathBuf {
+    if cfg!(windows) {
+        exe_dir()
+    } else {
+        qrs_library::paths::DataDir::locate().root
+    }
+}
+
+/// Rocksmith's dlc folder in Steam, when it's there.
+fn steam_dlc() -> Option<PathBuf> {
+    #[cfg(windows)]
+    return Some(PathBuf::from(STEAM_DLC)).filter(|d| d.is_dir());
+    #[cfg(not(windows))]
+    return qrs_library::config::steam_rocksmith_dlc().into_iter().next();
+}
+
 /// A "feedpak" folder next to a "dlc" folder (quickRS finds that one by itself), else one inside the folder.
 fn default_to(from: &str) -> String {
     let p = PathBuf::from(from.trim().trim_matches('"'));
@@ -75,10 +102,41 @@ fn default_to(from: &str) -> String {
     .to_string()
 }
 
-fn load_keys() -> Keys {
+/// Rocksmith's keys; what's wrong with keys.json when it's there but doesn't give both (named without its long
+/// folder, which "Open the folder" shows); and the folder it's in, else this program's.
+fn load_keys() -> (Keys, Option<String>, PathBuf) {
     let mut dirs = vec![exe_dir()];
     dirs.extend(appdata_dir());
-    qrs_formats::load_keys(None, &dirs).unwrap_or_default()
+    // quickRS's own data folder (where the app keeps keys.json; on a Mac the only sensible place)
+    let data = qrs_library::paths::DataDir::locate().root;
+    if !dirs.contains(&data) {
+        dirs.push(data);
+    }
+    let found = qrs_formats::keys::candidate_files(None, &dirs)
+        .into_iter()
+        .find(|f| f.is_file());
+    let dir = found
+        .as_ref()
+        .and_then(|f| f.parent().map(Path::to_path_buf))
+        .unwrap_or_else(keys_home);
+    let short = |m: String| match &found {
+        Some(f) => m.replace(&f.display().to_string(), "keys.json"),
+        None => m,
+    };
+    match qrs_formats::load_keys(None, &dirs) {
+        Ok(k) if k.can_read_psarc() || k.source.is_none() => (k, None, dir),
+        Ok(k) => {
+            let name = if k.psarc.is_none() { "psarc_key" } else { "sng_key" };
+            (
+                k,
+                Some(format!(
+                    "{name} is empty or missing in keys.json: paste it in between its quotes."
+                )),
+                dir,
+            )
+        }
+        Err(e) => (Keys::default(), Some(short(format!("{e}."))), dir),
+    }
 }
 
 impl App {
@@ -86,17 +144,15 @@ impl App {
         text::install(&cc.egui_ctx);
         // quickrs-convert.exe [songs folder] [feedpak folder] (a folder dropped on the exe's icon comes in this way)
         let mut args = std::env::args().skip(1);
-        let from = args.next().unwrap_or_else(|| {
-            if Path::new(STEAM_DLC).is_dir() {
-                STEAM_DLC.to_string()
-            } else {
-                String::new()
-            }
-        });
+        let from = args
+            .next()
+            .unwrap_or_else(|| steam_dlc().map(|d| d.display().to_string()).unwrap_or_default());
         let to = args.next();
+        let (keys, keys_problem, keys_dir) = load_keys();
         App {
-            keys: load_keys(),
-            keys_dir: exe_dir(),
+            keys,
+            keys_problem,
+            keys_dir,
             to_chosen: to.is_some(),
             to: to.unwrap_or_else(|| default_to(&from)),
             from,
@@ -174,7 +230,14 @@ fn para(p: &egui::Painter, s: &str, at: Pos2, size: f32, color: Color32, max_w: 
 }
 
 fn open_folder(path: &Path) {
-    let _ = std::process::Command::new("explorer").arg(path).spawn();
+    let opener = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener).arg(path).spawn();
 }
 
 impl eframe::App for App {
@@ -208,9 +271,29 @@ impl eframe::App for App {
             w,
         ) + 16.0;
 
-        // the keys
-        let keys_ok = self.keys.psarc.is_some();
-        let kr = Rect::from_min_size(pos2(x0, y), vec2(w, if keys_ok { 44.0 } else { 78.0 }));
+        // the keys (the card grows when what's wrong with keys.json takes more than two lines)
+        let keys_ok = self.keys.can_read_psarc();
+        let (keys_title, keys_help) = match &self.keys_problem {
+            Some(why) => (
+                "keys.json has a problem",
+                format!("{why} Then save keys.json and press Check again."),
+            ),
+            None => (
+                "keys.json is missing",
+                format!(
+                    "Put Rocksmith's two keys in keys.example.json and save it as keys.json, {KEYS_WHERE}. Then press \
+                     Check again."
+                ),
+            ),
+        };
+        let help_style = Style::new(12.0, 500, th.text_2);
+        let help_lines = text::wrap(p.ctx(), &keys_help, help_style, w - 220.0).len();
+        let keys_h = if keys_ok {
+            44.0
+        } else {
+            78.0 + help_lines.saturating_sub(2) as f32 * (text::line_height(p.ctx(), help_style) + 3.0)
+        };
+        let kr = Rect::from_min_size(pos2(x0, y), vec2(w, keys_h));
         paint::inset(&p, kr, Some(14.0), 3.0, Fill::Base);
         paint::dot(
             &p,
@@ -231,7 +314,7 @@ impl eframe::App for App {
         } else {
             line(
                 &p,
-                "keys.json is missing",
+                keys_title,
                 pos2(kr.min.x + 38.0, kr.min.y + 13.0),
                 14.0,
                 700,
@@ -240,7 +323,7 @@ impl eframe::App for App {
             );
             para(
                 &p,
-                "Copy keys.example.json to keys.json in this program's folder and paste in Rocksmith's two keys (see README.txt), then press Check again.",
+                &keys_help,
                 pos2(kr.min.x + 38.0, kr.min.y + 36.0),
                 12.0,
                 th.text_2,
@@ -270,7 +353,7 @@ impl eframe::App for App {
             )
             .clicked()
             {
-                self.keys = load_keys();
+                (self.keys, self.keys_problem, self.keys_dir) = load_keys();
             }
         }
         y = kr.max.y + 22.0;

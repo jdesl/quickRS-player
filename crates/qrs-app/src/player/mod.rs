@@ -2,9 +2,22 @@
 //! guitar's status strip; the tab (tab.rs); the transport, seek groove and volume knobs in the footer; the
 //! console on the right with the tiles (tiles.rs) or the controls (controls.rs); the count-in, toasts, the
 //! slow-down card, the sections list and the results card. Every key of the Python player works the same.
+//! New here: ear mode (H), for a lesson's riff the coach in the console (coach.rs), and note by note (W,
+//! notebynote.rs: the song waits at each note until you play it).
 
+pub mod board;
+pub mod coach;
 mod controls;
+pub(crate) mod gearinfo;
+mod highway;
+mod hud;
+mod notebynote;
+mod practise;
+mod songaudio;
+mod songsynth;
 mod tab;
+mod take;
+mod theory;
 pub mod tiles;
 
 use std::collections::VecDeque;
@@ -51,6 +64,19 @@ pub const SPEEDS: [f64; 24] = [
 const DIAL_STEP: f32 = 14.0;
 const DIAL_TRAVEL: f32 = 160.0;
 const ZOOM_HUD: f32 = 1.4;
+/// Seconds the tab's toolbar stays open without the pointer on it before it rolls up into its icon.
+const TOOLS_IDLE: f32 = 3.0;
+/// How far the tab's bars can be widened or narrowed, and its strings spread or closed up, on top of the zoom.
+const WIDTH_K: (f32, f32) = (0.5, 2.5);
+const HEIGHT_K: (f32, f32) = (0.6, 1.8);
+
+/// What the zoom HUD shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ZoomWhat {
+    Zoom,
+    Width,
+    Height,
+}
 const SEC_ROW: f32 = 40.0;
 const SEC_ROWS: f32 = 8.5;
 /// Seconds into a run of arrow presses, and the step then; 20 s after.
@@ -116,6 +142,18 @@ fn inflate(r: Rect, dx: f32, dy: f32) -> Rect {
 /// A point at whole pixels, as the Python app's int positions.
 fn ipos(x: f32, y: f32) -> Pos2 {
     pos2(snap(x), snap(y))
+}
+
+/// R's action: record what you hear, pause, resume (the lamp row's rec key too); Shift R stops and saves; Ctrl R
+/// records a take of the loop, scored (D30, D53).
+fn r_key(ctrl: bool, shift: bool) -> &'static str {
+    if ctrl {
+        "take:record"
+    } else if shift {
+        "rec:stop"
+    } else {
+        hud::REC_ACT
+    }
 }
 
 /// `neu.keycap_width`: the label's width and `px(12)`.
@@ -404,6 +442,17 @@ impl Nota {
 pub enum PlayerReq {
     Library,
     Settings(&'static str),
+    /// Back to the Lessons page (the coach's).
+    Lessons,
+    /// On to a lesson's riff (its song, with the coach).
+    Riff {
+        lesson: String,
+        riff: String,
+    },
+    /// Another song (by its id).
+    Song {
+        id: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -443,7 +492,24 @@ pub struct PlayerView {
     pub audio_error: String,
     pub scorer: Scorer,
     states: Vec<Option<Judgement>>,
+    /// Ear mode (H, P13.1): the tab's notes hidden until you find them.
+    pub ear: bool,
+    /// For each of `chart.glyphs`: shown in ear mode (played right, or found in a lesson).
+    pub revealed: Vec<bool>,
+    /// A lesson's riff being learned (P13.5): the coach in the console.
+    pub coach: Option<coach::Coach>,
+    /// A take of a stretch (P17.11): recording, analysing, its report and "your tab".
+    take: Option<take::Session>,
+    /// Note by note (W, P15.3): the song stops at each note still to be played until you play it.
+    pub nbn: bool,
+    /// The note the song is stopped at, waiting for you.
+    waiting: Option<notebynote::Waiting>,
+    /// The jewel lamp's light as drawn (0 off, 1 on, up to 2 breathing).
+    nbn_lit: f32,
     pub tab: TabView,
+    /// The 3D highway (D32), shown instead of the tab while `hw_on` (V).
+    pub highway: highway::Highway,
+    pub hw_on: bool,
     pub synth: SynthPlayer,
     pub sel_loop: bool,
     pub sel_slow: f64,
@@ -457,6 +523,12 @@ pub struct PlayerView {
     /// +: count your playing as earlier.
     pub input_offset: f64,
     toast: Option<(String, String, Instant)>,
+    /// The keys of the press that made the toast (a keycap flash at the tab's foot), or none (a toast at its top).
+    toast_keys: Vec<String>,
+    /// The keys being handled, for the toast their action makes.
+    pressed: Option<Vec<String>>,
+    /// The Shortcuts sheet is up.
+    shortcuts: bool,
     countdown_until: Option<Instant>,
     pub lyrics: Vec<Line>,
     lyric_starts: Vec<f64>,
@@ -481,6 +553,14 @@ pub struct PlayerView {
     pub tuner_text: String,
     tuner_at: Instant,
     zoom_at: Option<Instant>,
+    /// Which of the tab's sizes the HUD shows (the zoom, the bars' width or the strings' spacing).
+    zoom_what: ZoomWhat,
+    /// The tab fills the screen (owner request): no header, transport or console; F or Esc to leave.
+    pub tab_full: bool,
+    /// Where the tab's toolbar is (as last drawn: open, rolled up or between).
+    tools_rect: Rect,
+    /// When the toolbar was last in use (the pointer on it, a size changed): after TOOLS_IDLE it rolls up.
+    tools_active: Instant,
     tip: Option<(String, String, Pos2, Align2)>,
     sec_menu: Option<SecMenu>,
     sec_jump: Option<usize>,
@@ -489,11 +569,18 @@ pub struct PlayerView {
     pending_speed: Option<f64>,
     speed_at: Instant,
     stretch: Option<StretchJob>,
+    /// The song's stem mixer and pitch shift (P20.3).
+    mixer: songaudio::Mixer,
+    /// The synth guitar playing the part in place of the song's (P23.11).
+    song_synth: songsynth::SongSynth,
     pub nota: Nota,
     pub auto_level: bool,
     run_scored: bool,
     recorded: bool,
     new_best: bool,
+    /// The results card was closed (its x or Esc, P23.12): the song page stays as it is, any recording running,
+    /// until the song plays again or ends again.
+    summary_dismissed: bool,
     result_scored: bool,
     result_rank: Option<usize>,
     tile_drag: Option<TileDrag>,
@@ -524,6 +611,8 @@ pub struct PlayerView {
     pub mg_mini: crate::mg300::mini::MiniPedal,
     #[cfg(feature = "nux")]
     pub mg_view: crate::mg300::view::BigView,
+    /// The Pedalboard tile and its big view (P14.3-P14.4).
+    pub rack: board::Rack,
 }
 
 impl PlayerView {
@@ -535,6 +624,7 @@ impl PlayerView {
             arr,
             lyrics,
             song,
+            stems,
             audio_error,
         } = loaded;
         let nota = Nota::from_config(st);
@@ -580,11 +670,13 @@ impl PlayerView {
         let ids = st.ids(g);
         let sid = entry.id();
         let canonical = st.groups[g].canonical.clone();
+        let saved_audio = st.userdata.song_audio(&sid);
         st.userdata.alias(&canonical, &sid);
         st.userdata.started(&sid, &part_name);
         let mut transport = transport;
         transport.set_volume(st.config.f64("volume", 0.8) as f32);
         let lyric_starts = lyrics.iter().map(|l| l.start()).collect();
+        let revealed = vec![false; chart.glyphs.len()];
         let mut p = PlayerView {
             g,
             entry,
@@ -598,7 +690,18 @@ impl PlayerView {
             audio_error,
             scorer,
             states: Vec::new(),
-            tab: TabView::default(),
+            ear: false,
+            revealed,
+            coach: None,
+            take: None,
+            nbn: false,
+            waiting: None,
+            nbn_lit: 0.0,
+            tab: TabView::shaped(
+                (st.config.f64("tab_width", 1.0) as f32).clamp(WIDTH_K.0, WIDTH_K.1),
+                (st.config.f64("tab_height", 1.0) as f32).clamp(HEIGHT_K.0, HEIGHT_K.1),
+                st.config.bool("tab_compact", false),
+            ),
             synth: SynthPlayer::default(),
             sel_loop: st.config.bool("sel_loop", false),
             sel_slow: st.config.f64("sel_slow", 1.0),
@@ -610,6 +713,9 @@ impl PlayerView {
             offset: st.config.f64("av_offset", 0.0),
             input_offset: st.config.f64("input_offset", 0.0),
             toast: None,
+            toast_keys: Vec::new(),
+            pressed: None,
+            shortcuts: false,
             countdown_until: Some(Instant::now() + Duration::from_secs_f32(COUNTDOWN)),
             lyrics,
             lyric_starts,
@@ -634,6 +740,18 @@ impl PlayerView {
             tuner_text: String::new(),
             tuner_at: Instant::now(),
             zoom_at: None,
+            zoom_what: ZoomWhat::Zoom,
+            tab_full: st.config.bool("tab_full", false),
+            highway: highway::Highway::new(
+                st.config.bool("hw_invert", false),
+                st.config.f64("hw_speed", highway::SPEED_DEFAULT as f64).max(0.0) as usize,
+                st.config
+                    .f64("hw_camera", highway::CAMERA_DEFAULT as f64)
+                    .max(0.0) as usize,
+            ),
+            hw_on: st.config.bool("view_highway", false),
+            tools_rect: Rect::NOTHING,
+            tools_active: Instant::now(),
             tip: None,
             sec_menu: None,
             sec_jump: None,
@@ -642,11 +760,14 @@ impl PlayerView {
             pending_speed: None,
             speed_at: Instant::now(),
             stretch: None,
+            mixer: songaudio::Mixer::new(stems, &saved_audio),
+            song_synth: songsynth::SongSynth::from_config(&st.config),
             nota,
             auto_level: st.config.bool("auto_level", true),
             run_scored: true,
             recorded: false,
             new_best: false,
+            summary_dismissed: false,
             result_scored: false,
             result_rank: None,
             tile_drag: None,
@@ -671,10 +792,16 @@ impl PlayerView {
             mg_mini: Default::default(),
             #[cfg(feature = "nux")]
             mg_view: Default::default(),
+            rack: board::Rack::new(None),
         };
         p.relink_glyphs();
         if let Some(e) = p.transport.engine() {
             let _ = e.take_onsets(); // plucks before the song started don't count
+        }
+        if p.mixer.pitch != 0 {
+            // the song's saved pitch shift: its version starts now, during the count-in
+            p.scorer.transpose(p.mixer.pitch);
+            p.restretch(1.0, true);
         }
         p
     }
@@ -698,6 +825,7 @@ impl PlayerView {
 
     /// A toast that stays `secs` (the device notices).
     pub fn say_for(&mut self, text: impl Into<String>, tail: impl Into<String>, secs: f32) {
+        self.toast_keys = self.pressed.take().unwrap_or_default();
         self.toast = Some((
             text.into(),
             tail.into(),
@@ -729,6 +857,7 @@ impl PlayerView {
         self.sec_jump = None;
         let time = time.clamp(0.0, self.transport.duration());
         self.transport.seek(time);
+        self.nbn_release(true); // waiting at a note: play on from there
         self.tab.follow = true; // the cursor jumped: bring the tab page to it
         self.scorer.reset_from(time - self.offset);
         if time - self.offset < self.chart.first_note - 0.5 {
@@ -739,7 +868,7 @@ impl PlayerView {
     }
 
     fn restart_counters(&mut self) {
-        self.scorer = Scorer::new(&self.chart.arr);
+        self.scorer = self.new_scorer();
         if let Some(e) = self.engine() {
             let _ = e.take_onsets();
         }
@@ -762,9 +891,9 @@ impl PlayerView {
         self.pending_speed.unwrap_or_else(|| self.transport.speed())
     }
 
-    /// A high score only counts at full difficulty and full speed.
+    /// A high score only counts at full difficulty and full speed (and not note by note).
     fn at_max_settings(&self) -> bool {
-        self.mastery >= 0.999 && (self.speed() - 1.0).abs() < 1e-6
+        self.mastery >= 0.999 && (self.speed() - 1.0).abs() < 1e-6 && !self.nbn
     }
 
     fn started_playing(&self) -> bool {
@@ -799,9 +928,22 @@ impl PlayerView {
         self.part_key = key.to_string();
         self.mastery = mastery;
         self.part_name = info.name.clone();
+        self.nbn_release(true); // the note waited at was the old chart's
         let started = self.started_playing();
         self.chart = Chart::new(arr, self.transport.duration(), &self.nota);
-        self.scorer = Scorer::new(&self.chart.arr);
+        self.revealed = vec![false; self.chart.glyphs.len()];
+        if let Some(c) = self.coach.as_mut() {
+            // the item's notes as this part has them; the ones found stay found
+            c.refit(&self.chart);
+            let found: Vec<(f64, i32)> = c.phrase[..c.progress.found as usize]
+                .iter()
+                .map(|n| (n.t, n.string))
+                .collect();
+            for (t_, s_) in found {
+                self.reveal_note(t_, s_);
+            }
+        }
+        self.scorer = self.new_scorer();
         self.relink_glyphs();
         self.stop_synth();
         let now = self.now();
@@ -854,20 +996,8 @@ impl PlayerView {
     }
 
     fn apply_speed(&mut self, speed: f64) {
-        let Source::Engine { e, song } = &self.transport.source else {
-            return;
-        };
-        if let Some(job) = self.stretch.take() {
-            job.cancel();
-        }
-        if (speed - 1.0).abs() < 1e-6 {
-            e.set_speed(1.0, None);
-        } else {
-            let from = e.position();
-            let job = StretchJob::start(song.clone(), speed, from);
-            e.set_speed(speed, Some(job.buffer.clone()));
-            self.stretch = Some(job);
-        }
+        // (with the pitch shift, if there is one)
+        self.restretch(speed, true);
     }
 
     /// Arrangement names, numbered when a song has two of the same ("Combo", "Combo 2").
@@ -954,6 +1084,8 @@ impl PlayerView {
             self.stop_synth();
             return;
         }
+        self.nbn_release(false); // the song stays stopped under the selection
+        self.tab.follow = true; // the page goes with it, as with the song
         let speed = self.selection_speed();
         if self.sel_track && self.track_ok() {
             // the song itself: any passage, notes or not
@@ -962,8 +1094,15 @@ impl PlayerView {
                 self.transport.pause();
             }
             if let Some(song) = self.transport.song().cloned() {
-                self.synth
-                    .start_track(song, a, b, self.offset, speed, self.sel_loop);
+                self.synth.start_track(
+                    song,
+                    a,
+                    b,
+                    self.offset,
+                    speed,
+                    self.mixer.pitch as f32,
+                    self.sel_loop,
+                );
             }
             return;
         }
@@ -986,7 +1125,7 @@ impl PlayerView {
             self.transport.pause();
         }
         let notes = self.chart.synth_notes();
-        let opens = self.chart.opens.clone();
+        let opens = self.sounding_opens();
         // where each note is drawn: snapped onto the beat when it's charted just off it
         let snapped: Vec<(f64, f64)> = match &self.chart.rhythm {
             Some(r) if snap => self
@@ -1017,6 +1156,138 @@ impl PlayerView {
             e.rate(),
             place,
         );
+    }
+
+    // -- saved licks ------------------------------------------------------------------------------------------
+
+    /// The stretch a lick would be saved from: the selection ("sel"), the loop ("loop"), or (None) the selection
+    /// if there is one, else the loop.
+    fn lick_range(&self, from: Option<&str>) -> Option<(f64, f64)> {
+        let sel = self.tab.sel.filter(|(a, b)| b > a);
+        let lp = self.loop_a.zip(self.loop_b).filter(|(a, b)| b > a);
+        match from {
+            Some("sel") => sel,
+            Some("loop") => lp,
+            _ => sel.or(lp),
+        }
+    }
+
+    /// The lick for a stretch of this part: the song, the part, and the sections and bars it falls in.
+    pub fn lick_for(&self, a: f64, b: f64) -> qrs_library::Lick {
+        let mut sections: Vec<String> = Vec::new();
+        for s in &self.chart.sections {
+            if s.start < b - 0.01 && s.end > a + 0.01 {
+                let label = section_label(s);
+                if sections.last() != Some(&label) {
+                    sections.push(label);
+                }
+            }
+        }
+        let ms = TabView::measures_of(&self.chart);
+        let bar = |t: f64| {
+            ms.iter()
+                .rev()
+                .find(|m| m.start <= t)
+                .or(ms.first())
+                .map(|m| m.number)
+        };
+        let bars = bar(a + 1e-3).zip(bar(b - 1e-3)).map(|(x, y)| (x, y.max(x)));
+        qrs_library::Lick {
+            song: self.sid.clone(),
+            canonical: String::new(), // (the row's: see save_lick)
+            part: self.part_name.clone(),
+            part_key: self.part_key.clone(),
+            start: a,
+            end: b,
+            title: self.entry.display_title(),
+            artist: self.entry.artist.clone(),
+            tuning: self.chart.arr.tuning_name(),
+            name: qrs_library::Lick::auto_name(&sections, bars, a),
+            sections,
+            bars,
+            saved: 0.0,
+            other: Default::default(),
+        }
+    }
+
+    /// Save the selection or the loop as a lick (see `lick_range`).
+    fn save_lick(&mut self, st: &mut AppState, from: Option<&str>) {
+        let Some((a, b)) = self.lick_range(from) else {
+            self.say_for(
+                "Nothing to save: ",
+                "select bars (Ctrl-drag over the tab) or set a loop with [ and ]",
+                3.0,
+            );
+            return;
+        };
+        let mut lick = self.lick_for(a, b);
+        lick.canonical = st
+            .row_of(&self.entry)
+            .map(|g| st.groups[g].canonical.clone())
+            .unwrap_or_default();
+        let name = lick.name.clone();
+        st.userdata.add_lick(lick);
+        self.say_for("Saved lick: ", name, 2.5);
+    }
+
+    /// Open on a saved lick: its stretch looped, the playhead at its start (the count-in still runs).
+    pub fn set_lick_loop(&mut self, a: f64, b: f64, name: &str) {
+        let countdown = self.countdown_until;
+        self.seek(a);
+        self.countdown_until = countdown;
+        self.loop_a = Some(a);
+        self.loop_b = Some(b);
+        self.loop_passes = 0;
+        self.loop_acc = None;
+        self.say_for(
+            "Lick: ",
+            format!("{name}  ·  looping {} – {}", fmt_time(a), fmt_time(b)),
+            3.0,
+        );
+    }
+
+    // -- ear mode (P13.1) -------------------------------------------------------------------------------------
+
+    /// Hide the tab's notes, or show them again. Notes already found stay found while the part is open.
+    pub fn set_ear(&mut self, on: bool) {
+        self.ear = on;
+        if self.revealed.len() != self.chart.glyphs.len() {
+            self.revealed = vec![false; self.chart.glyphs.len()];
+        }
+    }
+
+    /// Show the note at chart time `t` on `string` (one found in a lesson).
+    pub fn reveal_note(&mut self, t: f64, string: i32) {
+        let i0 = self.chart.gtimes.partition_point(|&x| x < t - 0.002);
+        for i in i0..self.chart.glyphs.len() {
+            let gl = &self.chart.glyphs[i];
+            if gl.t > t + 0.002 {
+                break;
+            }
+            if gl.string == string
+                && let Some(shown) = self.revealed.get_mut(i)
+            {
+                *shown = true;
+            }
+        }
+    }
+
+    /// Ear mode: a note judged as played (in time or not) shows from then on.
+    fn reveal_played(&mut self) {
+        if !self.ear {
+            return;
+        }
+        for (gl, shown) in self.chart.glyphs.iter().zip(self.revealed.iter_mut()) {
+            if !*shown
+                && let Some(g) = gl.group
+                && matches!(
+                    self.states.get(g),
+                    Some(Some(Judgement::Hit | Judgement::Late | Judgement::Early))
+                )
+            {
+                *shown = true;
+            }
+        }
     }
 
     // -- actions ----------------------------------------------------------------------------------------------
@@ -1060,6 +1331,7 @@ impl PlayerView {
     pub fn hold(&mut self) {
         self.cancel_drags();
         self.countdown_until = None;
+        self.nbn_release(false);
         if self.transport.playing() {
             self.transport.pause();
         }
@@ -1077,6 +1349,11 @@ impl PlayerView {
         let pos = self.transport.position();
         match name {
             "library" => self.reqs.push(PlayerReq::Library),
+            // the results card closed: the song page as it was, stopped at the end (a recording keeps running)
+            "summary_close" => {
+                self.summary_dismissed = true;
+                self.backdrop.clear();
+            }
             #[cfg(feature = "nux")]
             "mg:open" => self.mg_view.open = true,
             #[cfg(feature = "nux")]
@@ -1088,12 +1365,18 @@ impl PlayerView {
             }
             "practice" => {
                 self.show_controls = true;
+                if let Some(c) = self.coach.as_mut() {
+                    c.show = false; // (the console's controls, not the coach)
+                }
                 let mut opened = controls::panel_open(st);
                 opened.insert("PRACTICE".into());
                 controls::set_panel_open(st, &opened);
                 self.ctrl_goto = Some("PRACTICE");
             }
             "sel_play" => self.play_selection(true),
+            "save_lick" => self.save_lick(st, None),
+            "lick_sel" => self.save_lick(st, Some("sel")),
+            "lick_loop" => self.save_lick(st, Some("loop")),
             "sel_loop" => {
                 self.sel_loop = !self.sel_loop;
                 st.config.set("sel_loop", self.sel_loop);
@@ -1151,6 +1434,10 @@ impl PlayerView {
                 self.stop_synth();
                 self.tab.sel = None;
             }
+            "play" if self.tab.sel.is_some() && self.coach.is_none() => {
+                // a Ctrl-selection is up: Space (and the play key) plays and stops it, as the song otherwise
+                self.play_selection(true);
+            }
             "play" => {
                 self.stop_synth();
                 if self.countdown_until.is_some() {
@@ -1159,10 +1446,18 @@ impl PlayerView {
                 } else if self.transport.finished() {
                     self.seek(0.0); // play again: a fresh run from the top
                     self.transport.play();
+                } else if self.waiting.is_some() {
+                    self.nbn_release(false); // a pause (the song has already stopped)
                 } else {
                     self.transport.toggle();
                 }
             }
+            "shortcuts" => {
+                self.shortcuts = !self.shortcuts;
+                self.pressed = None;
+            }
+            "nbn" => self.set_note_by_note(!self.nbn),
+            "nbn:skip" => self.nbn_skip(),
             "back" | "fwd" => {
                 let step = self.scrub_step(if name == "fwd" { 1 } else { -1 });
                 if step != 0 {
@@ -1180,10 +1475,129 @@ impl PlayerView {
             "zoom_in" => {
                 self.tab.zoom = (self.tab.zoom * 1.15).min(2.5);
                 self.zoom_at = Some(Instant::now());
+                self.zoom_what = ZoomWhat::Zoom;
             }
             "zoom_out" => {
                 self.tab.zoom = (self.tab.zoom / 1.15).max(0.5);
                 self.zoom_at = Some(Instant::now());
+                self.zoom_what = ZoomWhat::Zoom;
+            }
+            "tab_wider" | "tab_narrower" | "tab_taller" | "tab_shorter" => {
+                let k = if matches!(name, "tab_wider" | "tab_taller") {
+                    1.1
+                } else {
+                    1.0 / 1.1
+                };
+                if matches!(name, "tab_wider" | "tab_narrower") {
+                    self.tab.width_k = (self.tab.width_k * k).clamp(WIDTH_K.0, WIDTH_K.1);
+                    st.config.set("tab_width", self.tab.width_k as f64);
+                    self.zoom_what = ZoomWhat::Width;
+                } else {
+                    self.tab.height_k = (self.tab.height_k * k).clamp(HEIGHT_K.0, HEIGHT_K.1);
+                    st.config.set("tab_height", self.tab.height_k as f64);
+                    self.zoom_what = ZoomWhat::Height;
+                }
+                self.zoom_at = Some(Instant::now());
+            }
+            "zoom_reset" => {
+                self.tab.zoom = 1.0;
+                self.zoom_at = Some(Instant::now());
+                self.zoom_what = ZoomWhat::Zoom;
+            }
+            "tab_width_reset" | "tab_height_reset" => {
+                if name == "tab_width_reset" {
+                    self.tab.width_k = 1.0;
+                    st.config.set("tab_width", 1.0);
+                    self.zoom_what = ZoomWhat::Width;
+                } else {
+                    self.tab.height_k = 1.0;
+                    st.config.set("tab_height", 1.0);
+                    self.zoom_what = ZoomWhat::Height;
+                }
+                self.zoom_at = Some(Instant::now());
+            }
+            "tab_shape_reset" => {
+                self.tab.width_k = 1.0;
+                self.tab.height_k = 1.0;
+                st.config.set("tab_width", 1.0);
+                st.config.set("tab_height", 1.0);
+                self.say("Tab: bar width and string spacing reset", "");
+            }
+            "tab_compact" => {
+                self.tab.compact = !self.tab.compact;
+                st.config.set("tab_compact", self.tab.compact);
+                self.tab.jump = true;
+                self.say(
+                    format!("Compact rows: {}", if self.tab.compact { "on" } else { "off" }),
+                    "C",
+                );
+            }
+            "view" => {
+                self.hw_on = !self.hw_on;
+                st.config.set("view_highway", self.hw_on);
+                self.tab.jump = true;
+                if self.hw_on {
+                    let moves = self.highway.moves(&self.chart);
+                    self.say(
+                        format!("Highway: the camera moves {moves} times in this part"),
+                        "V",
+                    );
+                } else {
+                    self.say("Tab", "V");
+                }
+            }
+            "hw_speed_reset" | "hw_camera_reset" => {
+                let camera = name == "hw_camera_reset";
+                self.highway.reset(camera);
+                if camera {
+                    st.config.set("hw_camera", self.highway.camera as f64);
+                    self.say(format!("Camera: {}", highway::CAMERAS[self.highway.camera]), "");
+                } else {
+                    st.config.set("hw_speed", self.highway.speed as f64);
+                    self.say(format!("Note speed {}%", self.highway.speed_pct()), "");
+                }
+            }
+            "hw_slower" | "hw_faster" => {
+                if self.highway.step_speed(if name == "hw_faster" { 1 } else { -1 }) {
+                    st.config.set("hw_speed", self.highway.speed as f64);
+                }
+                self.say(format!("Note speed {}%", self.highway.speed_pct()), "");
+            }
+            "hw_steadier" | "hw_livelier" => {
+                if self
+                    .highway
+                    .step_camera(if name == "hw_livelier" { 1 } else { -1 })
+                {
+                    st.config.set("hw_camera", self.highway.camera as f64);
+                }
+                let moves = self.highway.moves(&self.chart);
+                self.say(
+                    format!(
+                        "Camera: {} ({moves} moves in this part)",
+                        highway::CAMERAS[self.highway.camera]
+                    ),
+                    "",
+                );
+            }
+            "hw_invert" => {
+                self.highway.invert = !self.highway.invert;
+                st.config.set("hw_invert", self.highway.invert);
+                self.say(
+                    if self.highway.invert {
+                        "Strings inverted: low E at the bottom"
+                    } else {
+                        "Low E on top"
+                    },
+                    "I",
+                );
+            }
+            "tab_full" => {
+                self.tab_full = !self.tab_full;
+                st.config.set("tab_full", self.tab_full);
+                self.tab.jump = true;
+                if self.tab_full {
+                    self.say("Full-screen tab", "F");
+                }
             }
             "theme" => st.toggle_theme(),
             "sections" => {
@@ -1304,6 +1718,17 @@ impl PlayerView {
                 self.lyrics_next = !self.lyrics_next;
                 st.config.set("lyrics_next", self.lyrics_next);
             }
+            "ear" => {
+                self.set_ear(!self.ear);
+                if self.ear {
+                    self.say(
+                        "Ear mode: ",
+                        "the notes are hidden until you play them  ·  H shows them",
+                    );
+                } else {
+                    self.say("Ear mode off", "");
+                }
+            }
             "lyrics" => {
                 let on = !tiles::tile_on(st, "lyrics");
                 tiles::tile_action(st, "tile:lyrics");
@@ -1331,6 +1756,7 @@ impl PlayerView {
                     .set("av_offset", (self.offset * 1000.0).round() / 1000.0);
                 self.say(format!("Sync offset {:+.0} ms", self.offset * 1000.0), "");
             }
+            "song_synth" => self.toggle_song_synth(st),
             "monitor" => {
                 if let Some(e) = self.engine().cloned() {
                     let on = !e.monitor();
@@ -1353,12 +1779,30 @@ impl PlayerView {
                     None => crate::tones::name_of(&crate::tones::current(&st.config)),
                 };
                 let next = crate::tones::next(now);
-                let spec = crate::tones::spec_of(next, crate::tones::custom(&st.config));
+                let spec = crate::tones::spec_for(&st.config, next);
                 crate::tones::store(&mut st.config, &spec);
                 if let Some(e) = self.engine() {
                     e.set_tone(spec);
                 }
                 self.say(format!("Tone: {}", crate::tones::label(next)), "");
+            }
+            "sounds" => {
+                // your saved sounds on the Pedalboard tile (it steps aside on an amp modeller, D33)
+                if !crate::calibrate::board_tile_wanted(st) {
+                    self.say(
+                        "Your amp modeller makes the tone",
+                        "  \u{b7}  your sounds play on the pedalboard",
+                    );
+                } else {
+                    if !tiles::tile_on(st, "board") {
+                        tiles::tile_action(st, "tile:board");
+                    }
+                    if tiles::tile_collapsed(st, "board") {
+                        tiles::set_tile_collapsed(st, "board", false);
+                    }
+                    self.show_controls = false;
+                    self.rack.sounds_toggle();
+                }
             }
             "gvol-" | "gvol+" => {
                 if let Some(e) = self.engine().cloned() {
@@ -1378,8 +1822,30 @@ impl PlayerView {
                     "",
                 );
             }
+            "pitch+" => self.change_pitch(st, 1),
+            "pitch-" => self.change_pitch(st, -1),
+            "pitch0" => self.change_pitch(st, 0),
             _ => {
-                if let Some(rest) = name.strip_prefix("setvol:") {
+                if let Some(what) = name.strip_prefix("stem:") {
+                    self.stem_action(st, what);
+                } else if let Some(what) = name.strip_prefix("coach:") {
+                    self.coach_act(st, what);
+                } else if let Some(what) = name.strip_prefix("take:") {
+                    self.take_act(what);
+                } else if let Some(what) = name.strip_prefix("rec:") {
+                    // R: record what you hear, pause, resume; Shift R or a click on the badge: stop and save (P23.9)
+                    let said = match what {
+                        "stop" => crate::recording::finish(st),
+                        _ => crate::recording::press(
+                            st,
+                            crate::recording::Page::Player,
+                            &self.entry.display_title(),
+                        ),
+                    };
+                    if let Some((a, b)) = said {
+                        self.say_for(a, b, 2.5);
+                    }
+                } else if let Some(rest) = name.strip_prefix("setvol:") {
                     let mut it = rest.splitn(2, ':');
                     if let (Some(kind), Some(v)) = (it.next(), it.next().and_then(|v| v.parse::<f32>().ok()))
                     {
@@ -1466,6 +1932,46 @@ impl PlayerView {
         if matches!(key, Key::OpenBracket | Key::CloseBracket) && ctrl {
             return Some("clear_loop".into());
         }
+        if key == Key::S && ctrl {
+            return Some("save_lick".into());
+        }
+        if key == Key::Enter && !ctrl && self.waiting.is_some() {
+            return Some("nbn:skip".into());
+        }
+        if let Some(c) = self.coach.as_ref() {
+            // the coach's keys: on, hear it again, a hint, the tuner; playing along, the speed keys step through
+            // the item's speeds
+            if matches!(
+                c.step,
+                coach::Step::Play | coach::Step::Practise | coach::Step::Record
+            ) && matches!(key, Key::Equals | Key::Plus)
+            {
+                return Some(if ctrl { "coach:slower" } else { "coach:faster" }.into());
+            }
+            if !ctrl {
+                match key {
+                    Key::Enter => return Some("coach:next".into()),
+                    // (a theory page or a take: back a page, back to Practise)
+                    Key::Backspace if matches!(c.step, coach::Step::Page(_) | coach::Step::Record) => {
+                        return Some("coach:back".into());
+                    }
+                    Key::R => return Some("coach:hear".into()),
+                    Key::Slash | Key::Questionmark => return Some("coach:hint".into()),
+                    Key::U => return Some("coach:tuner".into()),
+                    _ => {}
+                }
+            }
+        }
+        if key == Key::F1 || (matches!(key, Key::Questionmark | Key::Slash) && self.coach.is_none()) {
+            return Some("shortcuts".into());
+        }
+        // R: record what you hear, pause, resume (Shift R stops and saves); Ctrl R: a take of the loop, scored (D30)
+        if key == Key::R && self.coach.is_none() {
+            return Some(r_key(ctrl, shift).into());
+        }
+        if !ctrl && key == Key::B {
+            return Some("take:listen".into());
+        }
         if matches!(key, Key::Equals | Key::Plus) {
             return Some(if ctrl { "slower" } else { "faster" }.into());
         }
@@ -1475,11 +1981,32 @@ impl PlayerView {
         if key == Key::A && shift {
             return Some("part_prev".into());
         }
+        if key == Key::T && shift && !ctrl {
+            return Some("sounds".into());
+        }
         if let Some(d) = crate::library::digit(key)
             && (1..=6).contains(&d)
             && !ctrl
         {
             return Some(format!("partn:{}", d - 1));
+        }
+        if matches!(key, Key::ArrowUp | Key::ArrowDown) && shift && !m.alt {
+            // the song's pitch, a semitone at a time (P20.3)
+            return Some(if key == Key::ArrowUp { "pitch+" } else { "pitch-" }.into());
+        }
+        if m.alt {
+            // the tab's shape: Alt+Left/Right the bars' width, Alt+Up/Down the strings' spacing, Alt+0 both back
+            let a = match key {
+                Key::ArrowRight => Some("tab_wider"),
+                Key::ArrowLeft => Some("tab_narrower"),
+                Key::ArrowUp => Some("tab_taller"),
+                Key::ArrowDown => Some("tab_shorter"),
+                Key::Num0 => Some("tab_shape_reset"),
+                _ => None,
+            };
+            if let Some(a) = a {
+                return Some(a.into());
+            }
         }
         if self.tab.sel.is_some() && matches!(key, Key::Escape | Key::P | Key::S) {
             return Some(
@@ -1506,7 +2033,12 @@ impl PlayerView {
                     "fwd"
                 }
             }
+            Key::Escape if self.tab_full => "tab_full",
             Key::Escape | Key::Backspace => "library",
+            Key::F if !ctrl => "tab_full",
+            Key::V if !ctrl => "view",
+            Key::I if !ctrl && self.hw_on => "hw_invert",
+            Key::C if !ctrl => "tab_compact",
             Key::Space => "play",
             Key::Minus => "rewind",
             Key::ArrowUp => "zoom_in",
@@ -1520,8 +2052,11 @@ impl PlayerView {
             Key::L => "loop_section",
             Key::A => "part",
             Key::Y => "lyrics",
+            Key::H => "ear",
+            Key::W => "nbn",
             Key::N => "nota:show",
             Key::M => "monitor",
+            Key::G if !ctrl => "song_synth",
             Key::T => "tone",
             Key::Num7 => "gvol-",
             Key::Num8 => "gvol+",
@@ -1535,13 +2070,51 @@ impl PlayerView {
     /// Whether the MG-300's big view is up (never without the NUX support).
     fn pedal_view_open(&self) -> bool {
         #[cfg(feature = "nux")]
-        return self.mg_view.open;
+        return self.mg_view.open || self.rack.board.open;
         #[cfg(not(feature = "nux"))]
-        false
+        self.rack.board.open
     }
 
     /// Keys and the wheel.
     pub fn handle(&mut self, st: &mut AppState, ev: &Event) {
+        if self.board_key(st, ev) {
+            return;
+        }
+        if let Event::MouseWheel {
+            unit,
+            delta,
+            modifiers,
+            ..
+        } = ev
+        {
+            let notches = crate::library::wheel_notches(*unit, delta.y);
+            let pos = st.ctx.input(|i| i.pointer.hover_pos()).unwrap_or_default();
+            if self.board_wheel(st, pos, notches, modifiers.shift) || self.rack.board.open {
+                return;
+            }
+        }
+        if self.rack.board.open {
+            // the big view is modal: Esc closes it; Space still plays and pauses
+            match ev {
+                Event::Key {
+                    key: Key::Escape,
+                    pressed: true,
+                    ..
+                } => {
+                    self.rack.board.open = false;
+                    self.rack.board.picker = None;
+                }
+                Event::Key {
+                    key: Key::Space,
+                    pressed: true,
+                    ..
+                } => {}
+                _ => return,
+            }
+            if !matches!(ev, Event::Key { key: Key::Space, .. }) {
+                return;
+            }
+        }
         #[cfg(feature = "nux")]
         if self.mg_view.open {
             // the big pedal view is modal: Esc closes it, the wheel plays it
@@ -1599,8 +2172,25 @@ impl PlayerView {
                 modifiers,
                 ..
             } => {
+                if self.shortcuts && matches!(key, Key::Escape) {
+                    self.shortcuts = false;
+                    return;
+                }
+                if let Some(a) = summary_key(*key, self.summary_up()) {
+                    // (the card's own Esc, before Esc's "back to the library" can see it)
+                    self.act(st, a);
+                    return;
+                }
                 if let Some(name) = self.key_action(*key, *modifiers) {
+                    // the toast this press makes flashes its keycaps (Space shows on the play key already)
+                    if *key != Key::Space && !name.starts_with("coach:") {
+                        self.pressed = Some(hud::key_labels(*key, *modifiers));
+                    }
                     self.act(st, &name);
+                    if self.pressed.is_some() {
+                        self.flash_for(&name);
+                    }
+                    self.pressed = None;
                 }
             }
             Event::MouseWheel { unit, delta, .. } => {
@@ -1687,6 +2277,7 @@ impl PlayerView {
     // -- every frame ------------------------------------------------------------------------------------------
 
     pub fn update(&mut self, st: &mut AppState) {
+        self.board_update(st);
         if let Some(r) = self.countdown_hold {
             self.countdown_until = Some(Instant::now() + Duration::from_secs_f32(r));
         }
@@ -1709,6 +2300,8 @@ impl PlayerView {
         if self.stretch.as_ref().is_some_and(|j| j.done()) && self.engine().is_some_and(|e| !e.buffering()) {
             // keep the job (its buffer is the engine's) but stop showing progress
         }
+        self.update_song_audio();
+        self.update_song_synth();
         if self.countdown_until.is_some_and(|t0| Instant::now() >= t0) {
             self.countdown_until = None;
             self.transport.play();
@@ -1727,11 +2320,14 @@ impl PlayerView {
             let d = self.transport.duration();
             self.transport.seek(d);
         }
+        let ended_now = !self.transport.playing() && self.transport.finished() && !self.recorded;
+        // (a closed results card comes back when a new run ends)
+        self.summary_dismissed = keep_dismissed(self.summary_dismissed, self.transport.playing(), ended_now);
         if self.transport.playing() {
             self.recorded = false;
             self.new_best = false; // a new run: the last one's results card no longer applies
             self.result_rank = None;
-        } else if self.transport.finished() && !self.recorded {
+        } else if ended_now {
             self.recorded = true;
             self.record_completion(st);
         }
@@ -1742,6 +2338,10 @@ impl PlayerView {
         {
             let wall = Instant::now();
             let onsets = e.take_onsets();
+            // the coach reads each pluck's note, playing or not
+            self.coach_plucks(&onsets, e.capture().rate());
+            self.coach_listen(e.capture());
+            self.take_frame(&e, &onsets); // (a take's guitar off the ring)
             if self.transport.playing() {
                 let shift = self.offset - self.input_offset;
                 self.scorer.feed(onsets.iter().filter_map(|o| {
@@ -1760,6 +2360,8 @@ impl PlayerView {
                 let now = self.now();
                 self.scorer
                     .update(now, Some(&live), qrs_audio::clock::now_ns() as f64 / 1e9);
+            } else if self.waiting.is_some() {
+                self.nbn_listen(&e, &onsets);
             }
             if wall.duration_since(self.tuner_at).as_secs_f32() > 0.05 {
                 self.tuner_at = wall;
@@ -1770,7 +2372,11 @@ impl PlayerView {
             self.scorer
                 .update(now, None, qrs_audio::clock::now_ns() as f64 / 1e9);
         }
+        self.nbn_watch();
         self.states = self.scorer.groups.iter().map(|g| g.state).collect();
+        self.reveal_played();
+        self.coach_tick(st);
+        self.take_tick(st);
     }
 
     /// Feed the tuner (and the note tile's "you:") from the guitar input.
@@ -1804,11 +2410,21 @@ impl PlayerView {
         };
     }
 
-    /// Riff Repeater-style: after a loop pass at 90%+ accuracy, add notes (raise difficulty 10%).
-    fn loop_pass_done(&mut self, st: &AppState) {
+    /// Riff Repeater-style: after a loop pass at 90%+ accuracy, add notes (raise difficulty 10%). In a lesson, the
+    /// coach hears about every pass.
+    fn loop_pass_done(&mut self, st: &mut AppState) {
         self.loop_passes += 1;
+        let acc = self.loop_pass_accuracy();
+        if !self.take.as_ref().is_some_and(take::Session::going) {
+            self.loop_pass_level(st, acc);
+        }
+        self.coach_pass(st, acc);
+    }
+
+    /// The loop pass's accuracy (hits, and half for late or early), None without notes in it or a guitar.
+    fn loop_pass_accuracy(&mut self) -> Option<f64> {
         let (Some(a), Some(b)) = (self.loop_a, self.loop_b) else {
-            return;
+            return None;
         };
         let groups: Vec<&qrs_analysis::detect::NoteGroup> = self
             .scorer
@@ -1817,7 +2433,7 @@ impl PlayerView {
             .filter(|g| a <= g.t && g.t < b)
             .collect();
         if groups.is_empty() || !self.has_input() {
-            return;
+            return None;
         }
         let (mut hit, mut le) = (0.0, 0.0);
         for g in &groups {
@@ -1829,7 +2445,12 @@ impl PlayerView {
         }
         let acc = (hit + 0.5 * le) / groups.len() as f64;
         self.loop_acc = Some(acc);
-        if self.auto_level && self.mastery < 1.0 && acc >= LEVEL_UP_ACCURACY {
+        Some(acc)
+    }
+
+    fn loop_pass_level(&mut self, st: &AppState, acc: Option<f64>) {
+        let Some(acc) = acc else { return };
+        if self.auto_level && !self.nbn && self.mastery < 1.0 && acc >= LEVEL_UP_ACCURACY {
             let new = ((self.mastery + 0.1).min(1.0) * 100.0).round() / 100.0;
             let key = self.part_key.clone();
             if self.load_chart(st, &key, new) {
@@ -1869,25 +2490,66 @@ impl PlayerView {
     /// From a clean player: the run restarted, the song playing and held at one minute (61 s), the notes between
     /// 50 and 60 s judged hit, hit, hit, late, miss by their time (the rest before 61 s are missed), and the two
     /// earlier runs the Python tool records (38,900 at 84%, 35,100 at 79%); then what the page adds.
+    /// A screenshot sequence's frame (`shotclock`): the song held at `t` (song audio seconds), and with
+    /// QUICKRS_SHOT_JUDGE (hit, late, early, miss) each note not yet judged judged so as it reaches the now-line, as
+    /// if played (without it, notes pass unplayed and are missed as they would be).
+    pub fn shot_seq_frame(&mut self, t: f64) {
+        self.transport.hold(Some(t));
+        let judge = match std::env::var("QUICKRS_SHOT_JUDGE").ok().as_deref().map(str::trim) {
+            Some("hit") => Some(Judgement::Hit),
+            Some("late") => Some(Judgement::Late),
+            Some("early") => Some(Judgement::Early),
+            Some("miss") => Some(Judgement::Miss),
+            _ => None,
+        };
+        if let Some(j) = judge {
+            let now = t - self.offset;
+            for g in &mut self.scorer.groups {
+                if g.state.is_none() && g.t <= now {
+                    g.state = Some(j);
+                }
+            }
+        }
+    }
+
     pub fn prepare_shot(&mut self, st: &mut AppState, page: Option<crate::shots::Page>) {
         use crate::shots::Page;
         // (QUICKRS_SHOT_AT: another moment of the song, in seconds; the 10 s before it are judged as below)
         let at: f64 = std::env::var("QUICKRS_SHOT_AT")
             .ok()
             .and_then(|s| s.parse().ok())
+            .or_else(|| crate::shotclock::seq_env().map(|s| s.0)) // (a sequence starts where it starts)
             .unwrap_or(61.0);
         // what an earlier shot staged goes
         self.loop_a = None;
         self.loop_b = None;
+        self.coach = None;
+        self.take = None;
+        self.nbn = false;
+        self.waiting = None;
+        self.set_ear(false);
         self.sel_slow = 1.0;
         self.sel_track = false;
         self.tab.zoom = 1.0;
+        self.tab.width_k = 1.0;
+        self.tab.height_k = 1.0;
+        self.tab.compact = false;
+        self.tab_full = false;
         self.zoom_at = None;
+        self.zoom_what = ZoomWhat::Zoom;
         self.sec_menu = None;
         self.pending_speed = None;
         self.shot_stretch = None;
         self.panel_scroll = 0.0;
         self.toast = None;
+        self.toast_keys.clear();
+        self.shortcuts = false;
+        self.mixer.pitch = 0;
+        self.summary_dismissed = false;
+        self.input_offset = st.config.f64("input_offset", 0.0);
+        if let Some(e) = self.engine() {
+            e.set_monitor(true);
+        }
         self.countdown_hold = None;
         if self.audio_error == "the song's audio couldn't be decoded" {
             self.audio_error.clear();
@@ -1897,6 +2559,16 @@ impl PlayerView {
         #[cfg(feature = "nux")]
         {
             self.mg_view.open = page == Some(Page::Mg300View);
+        }
+        let board_page = matches!(
+            page,
+            Some(Page::PlayerBoard | Page::BoardView | Page::PlayerAt("board_add" | "board_sounds"))
+        );
+        self.rack.board.open = page == Some(Page::BoardView);
+        self.rack.board.picker =
+            (page == Some(Page::PlayerAt("board_add"))).then_some(board::Picker::Kinds { at: 2 });
+        if board_page {
+            self.board_use(st);
         }
         self.tab.sel = None;
         self.tab.follow = true;
@@ -1914,13 +2586,26 @@ impl PlayerView {
         self.transport.play();
         self.transport.seek(at - 1.0);
         self.transport.hold(Some(at));
+        let forced_to = if std::env::var("QUICKRS_SHOT_JUDGE").is_ok() {
+            at + 0.02
+        } else {
+            at - 1.0
+        };
         for g in &mut self.scorer.groups {
-            if at - 11.0 < g.t && g.t < at - 1.0 {
-                g.state = Some(match (g.t * 7.0) as i64 % 5 {
-                    3 => Judgement::Late,
-                    4 => Judgement::Miss,
-                    _ => Judgement::Hit,
-                });
+            if at - 11.0 < g.t && g.t < forced_to {
+                // (QUICKRS_SHOT_JUDGE=hit|late|miss: all of them so, to check the highway's effects)
+                let forced = std::env::var("QUICKRS_SHOT_JUDGE").ok();
+                g.state = Some(
+                    match forced.as_deref().map_or((g.t * 7.0) as i64 % 5, |f| match f {
+                        "late" => 3,
+                        "miss" => 4,
+                        _ => 0,
+                    }) {
+                        3 => Judgement::Late,
+                        4 => Judgement::Miss,
+                        _ => Judgement::Hit,
+                    },
+                );
             }
         }
         if !self.shot_runs {
@@ -1931,6 +2616,27 @@ impl PlayerView {
                 .completed(&self.sid, &self.part_name, 35100, 0.79, 1.0);
         }
         self.update(st); // one frame at 61 s: the notes before it that weren't judged are missed
+        if board_page {
+            // (after that frame, which takes up the song's tone at 61 s: QUICKRS_BOARD, a starting board on "mine";
+            // QUICKRS_BOARD_SEL, the block shown, by model id)
+            self.rack.board.picker =
+                (page == Some(Page::PlayerAt("board_add"))).then_some(board::Picker::Kinds { at: 2 });
+            if let Ok(name) = std::env::var("QUICKRS_BOARD") {
+                self.board_shot(
+                    st,
+                    Some(&name),
+                    std::env::var("QUICKRS_BOARD_SEL").ok().as_deref(),
+                );
+            } else if std::env::var("QUICKRS_BOARD_SEL").is_ok()
+                || std::env::var("QUICKRS_BOARD_CHAIN").is_ok()
+            {
+                // (QUICKRS_BOARD_CHAIN: a board of exactly these models, see `board_shot`)
+                let sel = std::env::var("QUICKRS_BOARD_SEL").ok();
+                self.board_shot(st, None, sel.as_deref());
+            }
+        }
+        // (your sounds listed on the tile, one of them on: P23.3)
+        self.board_sounds_shot(st, page == Some(Page::PlayerAt("board_sounds")));
         let now = at - self.offset;
         let bar_after = |p: &Self, dt: f64| p.tab.measure_at(now + dt).map(|m| (m.start, m.end));
         match page {
@@ -1945,6 +2651,42 @@ impl PlayerView {
             Some(Page::PlayerAt(what)) => match what {
                 "tiles_scrolled" => self.panel_scroll = qrs_ui::units::pixels(200.0), // (Python: 200 px)
                 "zoomed_out" => self.tab.zoom = 0.5,
+                "tab_full" => {
+                    self.tab_full = true;
+                    self.tools_active = Instant::now() + Duration::from_secs(60);
+                    self.tab.compact = true;
+                    self.tab.jump = true;
+                }
+                "tab_tools" | "tab_tools_hover" => {
+                    self.tab.jump = true;
+                    self.tools_active = Instant::now() + Duration::from_secs(60);
+                }
+                "tab_tools_rolled" => {
+                    self.tab.jump = true;
+                    self.tools_active = Instant::now()
+                        .checked_sub(Duration::from_secs(60))
+                        .unwrap_or_else(Instant::now);
+                }
+                "highway" | "highway_invert" => {
+                    self.hw_on = true;
+                    self.highway.invert = what == "highway_invert";
+                }
+                "highway_full" => {
+                    self.hw_on = true;
+                    self.tab_full = true;
+                }
+                "tab_compact" => {
+                    self.tab.compact = true;
+                    self.tab.jump = true;
+                }
+                // narrower bars, closer strings, the HUD showing the spacing
+                "tab_shape" => {
+                    self.tab.width_k = 0.75;
+                    self.tab.height_k = 0.8;
+                    self.zoom_what = ZoomWhat::Height;
+                    self.zoom_at = Some(Instant::now());
+                    self.tab.jump = true;
+                }
                 "sections" => self.acts.push("sections".into()),
                 "sel_track" => {
                     self.tab.sel = bar_after(self, 2.0);
@@ -1958,6 +2700,30 @@ impl PlayerView {
                     self.tab.jump = true;
                 }
                 "paused" => self.transport.pause(),
+                "indicators" => {
+                    // everything the shortcuts light at once: muted, transposed, a loop, the lamps, a key's flash
+                    if let Some(e) = self.engine() {
+                        e.set_monitor(false);
+                    }
+                    self.mixer.pitch = 1;
+                    self.input_offset = 0.02;
+                    self.loop_a = Some(now - 4.0);
+                    self.loop_b = Some(now + 14.0);
+                    self.loop_passes = 3;
+                    self.nbn = true;
+                    self.set_ear(true);
+                    self.pressed = Some(vec!["Shift".into(), "↑".into()]);
+                    self.say_for("Pitch ", "+1 semitone", 30.0);
+                }
+                "shortcuts" => self.shortcuts = true,
+                // the synth guitar's key on, and being prepared (P23.11)
+                "song_synth" => self.song_synth.shot = Some(1.0),
+                "song_synth_prep" => self.song_synth.shot = Some(0.4),
+                "recording" | "rec_paused" | "rec_saved" => {
+                    let dir = st.config.recordings_dir(&st.data.root);
+                    let what = what.strip_prefix("rec_").unwrap_or(what);
+                    st.rec.stage(&dir, what, &self.entry.display_title());
+                }
                 "toast" => {
                     self.transport.pause();
                     self.say_for(
@@ -1968,6 +2734,34 @@ impl PlayerView {
                 }
                 "slowing" => self.shot_stretch = Some(0.42),
                 "results_practice" | "no_audio" => self.shot_song_end(st, what),
+                // the results card closed (its x or Esc, P23.12): the page under it, stopped at the end
+                "results_closed" => {
+                    self.shot_song_end(st, "results");
+                    self.act(st, "summary_close");
+                }
+                // the header's transpose stepper moved (P23.12): the tuning shown as it sounds now
+                "transpose2" => self.mixer.pitch = 2,
+                "ear" => self.set_ear(true),
+                "nbn" | "nbn_wrong" => self.nbn_shot(what == "nbn_wrong"),
+                "lesson" => {
+                    // lesson 1's riff for this song, started as the Lessons page starts it
+                    let title = self.entry.display_title();
+                    let lesson = st.lessons.iter().find_map(|l| {
+                        let r = l.riffs.iter().find(|r| r.is_song(&self.entry.artist, &title))?;
+                        Some((l.clone(), r.id.clone()))
+                    });
+                    if let Some((l, r)) = lesson {
+                        self.start_lesson(st, l, &r);
+                    }
+                }
+                w if w.starts_with("coach_") => {
+                    self.transport.pause();
+                    self.stage_coach(st, &w["coach_".len()..]);
+                }
+                w if w.starts_with("take_") => {
+                    self.transport.pause();
+                    self.stage_take(w);
+                }
                 _ => {}
             },
             Some(Page::Results) => self.shot_song_end(st, "results"),
@@ -2016,6 +2810,8 @@ impl PlayerView {
         use crate::shots::Page;
         match page {
             Page::PlayerAt("tile_hover") => self.tile_rects.get("note").map(|r| r.center()),
+            Page::PlayerAt("tab_tools_hover") => (self.tools_rect != Rect::NOTHING)
+                .then(|| pos2(self.tools_rect.max.x - px(48.0), self.tools_rect.center().y)),
             Page::PlayerAt("back_tip") => (self.back_rect != Rect::NOTHING).then(|| self.back_rect.center()),
             _ => None,
         }
@@ -2027,6 +2823,7 @@ impl PlayerView {
         if let Some(job) = self.stretch.take() {
             job.cancel();
         }
+        self.mixer.cancel();
         if let Some(e) = e {
             e.pause();
             e.set_speed(1.0, None);
@@ -2106,21 +2903,36 @@ impl PlayerView {
         self.tip = None;
         let now = self.now();
         let (main, aside) = Self::layout(area);
-        let top = self.draw_header(ui, st, main);
         let foot = px(76.0);
-        let well = Rect::from_min_size(
-            ipos(main.min.x, top + px(18.0)),
-            vec2(
-                snap(main.width() - px(24.0)),
-                snap(main.max.y - foot - px(18.0) - top - px(18.0)),
-            ),
-        );
+        let well = if self.tab_full {
+            // the full-screen tab: the whole window but a margin and the scrollbar's groove
+            let pad = px(18.0);
+            Rect::from_min_size(
+                ipos(area.min.x + pad, area.min.y + pad),
+                vec2(
+                    snap(area.width() - 2.0 * pad - px(24.0)),
+                    snap(area.height() - 2.0 * pad),
+                ),
+            )
+        } else {
+            let top = self.draw_header(ui, st, main);
+            Rect::from_min_size(
+                ipos(main.min.x, top + px(18.0)),
+                vec2(
+                    snap(main.width() - px(24.0)),
+                    snap(main.max.y - foot - px(18.0) - top - px(18.0)),
+                ),
+            )
+        };
         let groove = Rect::from_min_size(
             ipos(well.max.x + px(14.0), well.min.y),
             vec2(px(10.0), well.height()),
         );
         self.well = well;
-        let synth_t = self.engine().and_then(|e| self.synth.position(e));
+        let synth_t = self
+            .engine()
+            .and_then(|e| self.synth.position(e))
+            .or_else(|| self.take_listen_pos());
         let tctx = TabCtx {
             chart: &self.chart,
             states: &self.states,
@@ -2137,8 +2949,19 @@ impl PlayerView {
             sel_track: self.sel_track,
             track_ok: self.track_ok(),
             selection_speed: self.selection_speed(),
+            ear: self.ear.then_some(self.revealed.as_slice()),
+            held: self.nbn_tab(),
         };
-        let tab_acts = self.tab.ui(ui, &tctx, well, groove);
+        let tab_acts = if self.hw_on {
+            let out = self.highway.ui(ui, &self.chart, &self.states, now, well);
+            self.acts.extend(out.acts.into_iter().map(String::from));
+            if out.tip.is_some() {
+                self.tip = out.tip;
+            }
+            Vec::new()
+        } else {
+            self.tab.ui(ui, &tctx, well, groove)
+        };
         for a in tab_acts {
             match a {
                 TabAct::Seek(tm) => {
@@ -2149,14 +2972,21 @@ impl PlayerView {
                 TabAct::Act(name) => self.acts.push(name.into()),
             }
         }
-        self.draw_zoom_hud(ui, well);
-        self.draw_footer(
-            ui,
-            st,
-            Rect::from_min_size(ipos(main.min.x, main.max.y - foot), vec2(main.width(), foot)),
-            now,
-        );
-        self.draw_aside(ui, st, aside, now);
+        self.draw_coach_well(ui, well); // (a theory page over the tab, or a lesson's callouts on it)
+        if theme::classic() {
+            self.draw_zoom_hud(ui, well); // (the Python app's look: no toolbar, the zoom's HUD)
+        } else if !self.hw_on {
+            self.draw_tab_tools(ui, well); // (the highway has its own keys: back to the tab, invert)
+        }
+        if !self.tab_full {
+            self.draw_footer(
+                ui,
+                st,
+                Rect::from_min_size(ipos(main.min.x, main.max.y - foot), vec2(main.width(), foot)),
+                now,
+            );
+            self.draw_aside(ui, st, aside, now);
+        }
         self.draw_states(ui, well);
         if self.sec_menu.is_some() {
             if self.pedal_view_open() || self.summary_up() {
@@ -2165,7 +2995,17 @@ impl PlayerView {
                 self.draw_section_menu(ui);
             }
         }
-        if let Some((text, key, pos, anchor)) = self.tip.clone() {
+        if self.rack.board.open {
+            self.draw_board_view(ui, st, area);
+        }
+        if self.shortcuts {
+            // every key, over the player (a click outside closes it)
+            let card = hud::draw_shortcuts(ui.painter(), area);
+            let resp = interact(ui, area, "shortcuts-sheet", Sense::click());
+            if resp.clicked() && !resp.interact_pointer_pos().is_some_and(|p| card.contains(p)) {
+                self.shortcuts = false;
+            }
+        } else if let Some((text, key, pos, anchor)) = self.tip.clone() {
             self.draw_tip(ui.painter(), &text, &key, pos, anchor, area);
         }
         #[cfg(feature = "nux")]
@@ -2216,7 +3056,7 @@ impl PlayerView {
             "SPEED",
             &format!("{}%", (self.speed() * 100.0).round() as i64),
             pos2(snap(pick.min.x - px(20.0)), mid_y(pick)),
-            slowed,
+            slowed.then_some(hud::Lit::Amber),
             true,
         );
         let status = self.draw_status(
@@ -2321,31 +3161,59 @@ impl PlayerView {
             .max
             .x,
         );
-        if ipx(tx + tw - x) > ipx(px(60.0)) {
-            let names = format!("   {}", self.chart.string_names.join(" "));
+        // transpose (P23.12): a sunken "TRANSPOSE − 0 +" beside the tuning, its keys Shift ↓ / Shift ↑ (the
+        // label goes first when it's narrow); transposed, what to tune to now. With no room, "+1" lit as before.
+        // The open strings follow when there's room (the tuner tile and the tab's rows name them too).
+        let pitch = self.mixer.pitch;
+        let cy = y + text::line_height(&ctx, Style::new(14.0, 700, th.text)) / 2.0;
+        let follow = if pitch != 0 {
+            text::width(
+                &ctx,
+                &format!("  →  {}", self.sounding_tuning_name()),
+                Style::new(14.0, 800, th.text),
+            )
+        } else {
+            0.0
+        };
+        let stepper = self.draw_transpose(ui, pos2(x + px(10.0), cy), snap(tx + tw - x - px(10.0)), follow);
+        if let Some(r) = stepper {
+            x = snap(r.max.x);
+        }
+        if pitch != 0 && ipx(tx + tw - x) > ipx(px(60.0)) {
+            if stepper.is_none() {
+                let r = hud::chip(
+                    &p,
+                    &songaudio::pitch_short(pitch),
+                    pos2(x + px(8.0), cy),
+                    hud::Lit::Amber,
+                );
+                x = snap(r.max.x);
+            }
+            let now = format!("  →  {}", self.sounding_tuning_name());
             x = snap(
                 txt(
                     &p,
-                    &names,
+                    &now,
                     pos2(x, y),
                     14.0,
-                    th.caption,
-                    500,
+                    th.text,
+                    800,
                     Align2::LEFT_TOP,
-                    Some(snap(tx + tw - x)),
+                    Some(snap(tx + tw - x).max(pixels(10.0))),
                 )
                 .max
                 .x,
             );
         }
-        if self.mastery < 0.999 && ipx(tx + tw - x) > ipx(px(80.0)) {
+        if ipx(tx + tw - x) > ipx(px(60.0)) {
+            let names = format!("   {}", self.sounding_string_names().join(" "));
             txt(
                 &p,
-                &format!("  ·  difficulty {}%", (self.mastery * 100.0).round() as i64),
+                &names,
                 pos2(x, y),
                 14.0,
-                th.accent_ink,
-                700,
+                th.caption,
+                500,
                 Align2::LEFT_TOP,
                 Some(snap(tx + tw - x)),
             );
@@ -2357,6 +3225,122 @@ impl PlayerView {
                 .max(cover.max.y)
                 .max(y + text::line_height(&ctx, Style::new(14.0, 500, th.text))),
         )
+    }
+
+    /// The header's transpose stepper, its left middle at `at`, in `room` across: a sunken pill, "TRANSPOSE" (when it
+    /// fits), − the semitones +. − and + are Shift ↓ / Shift ↑ (D38: the song's pitch, the tab as written); a click
+    /// on the value puts it back to 0. `follow`: what must fit after it (the tuning it sounds in). None: no room,
+    /// nothing drawn.
+    fn draw_transpose(&mut self, ui: &Ui, at: Pos2, room: f32, follow: f32) -> Option<Rect> {
+        let p = ui.painter().clone();
+        let th = t();
+        let ctx = ui.ctx().clone();
+        let pitch = self.mixer.pitch;
+        let (key, h) = (px(22.0), px(24.0));
+        let label = "TRANSPOSE";
+        let lab_w = snap(text::width(&ctx, label, Style::caps(10.0, th.caption)) + px(12.0));
+        let val_w = snap(text::width(&ctx, "+12", Style::new(13.0, 800, th.text)) + px(4.0));
+        let compact = snap(2.0 * key + val_w);
+        let w = match transpose_form(room, compact + lab_w, compact, follow) {
+            TransposeForm::Full => compact + lab_w,
+            TransposeForm::Compact => compact,
+            TransposeForm::Hidden => return None,
+        };
+        let r = Rect::from_min_size(ipos(at.x, at.y - snap(h / 2.0)), vec2(w, h));
+        paint::inset(&p, r, Some(h / 2.0), 3.0, Fill::Base);
+        let lit = hud::Lit::Amber.color();
+        if pitch != 0 {
+            paint::ring(&p, r, Some(h / 2.0), 1.5, lit, true);
+        }
+        let hover = ctx.input(|i| i.pointer.hover_pos());
+        let mut x = r.min.x;
+        if w > compact {
+            caps(
+                &p,
+                label,
+                ipos(x + px(10.0), mid_y(r)),
+                10.0,
+                Align2::LEFT_CENTER,
+                None,
+            );
+            let lr = Rect::from_min_size(r.min, vec2(lab_w, h));
+            if hover.is_some_and(|q| lr.contains(q)) {
+                self.tip = Some((
+                    "Transpose the song (the tab stays as written)".into(),
+                    String::new(),
+                    ipos(lr.min.x, r.max.y + px(8.0)),
+                    Align2::LEFT_TOP,
+                ));
+            }
+            x = snap(x + lab_w - px(4.0));
+        }
+        let minus = Rect::from_min_size(pos2(x, r.min.y), Vec2::splat(key));
+        let plus = Rect::from_min_size(ipos(r.max.x - key, r.min.y), Vec2::splat(key));
+        for (b, ic, tip, k, act) in [
+            (minus, Icon::Minus, "Down a semitone", "Shift ↓", "pitch-"),
+            (plus, Icon::Plus, "Up a semitone", "Shift ↑", "pitch+"),
+        ] {
+            let resp = interact(ui, b, ("hdr-transpose", act), Sense::click());
+            let ink = if resp.is_pointer_button_down_on() {
+                th.accent
+            } else if resp.hovered() {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+                p.circle_filled(mid(b), snap(key / 2.0 - px(3.0)), th.line);
+                th.text
+            } else {
+                th.caption
+            };
+            icons::icon(&p, ic, mid(b), 11.0, ink);
+            if resp.hovered() {
+                self.tip = Some((
+                    tip.into(),
+                    k.into(),
+                    ipos(mid_x(b), r.max.y + px(8.0)),
+                    Align2::CENTER_TOP,
+                ));
+            }
+            if resp.clicked() {
+                self.acts.push(act.into());
+            }
+        }
+        let mid_r = Rect::from_min_max(pos2(minus.max.x, r.min.y), pos2(plus.min.x, r.max.y));
+        let resp = interact(ui, mid_r, "hdr-transpose-value", Sense::click());
+        txt(
+            &p,
+            &songaudio::pitch_short(pitch),
+            mid(mid_r),
+            13.0,
+            if resp.hovered() {
+                th.text
+            } else if pitch != 0 {
+                lit
+            } else {
+                th.text_2
+            },
+            800,
+            Align2::CENTER_CENTER,
+            None,
+        );
+        if resp.hovered() {
+            ctx.set_cursor_icon(CursorIcon::PointingHand);
+            self.tip = Some((
+                if pitch != 0 {
+                    format!(
+                        "Transposed {}  ·  click: original pitch",
+                        songaudio::pitch_long(pitch)
+                    )
+                } else {
+                    "Transpose: original pitch".into()
+                },
+                String::new(),
+                ipos(mid_x(mid_r), r.max.y + px(8.0)),
+                Align2::CENTER_TOP,
+            ));
+        }
+        if resp.clicked() && pitch != 0 {
+            self.acts.push("pitch0".into());
+        }
+        Some(r)
     }
 
     /// A knob's value, 0..1 round its scale (while the difficulty knob is dragged, where it will go).
@@ -2462,7 +3446,7 @@ impl PlayerView {
         label: &str,
         value: &str,
         at: Pos2,
-        accent: bool,
+        lit: Option<hud::Lit>,
         enabled: bool,
     ) -> Rect {
         let p = ui.painter().clone();
@@ -2471,7 +3455,7 @@ impl PlayerView {
         let bx = px(56.0);
         let lab_w = text::width(&ctx, label, Style::caps(11.0, th.caption)).max(text::width(
             &ctx,
-            "200%",
+            if value.len() > 4 { value } else { "200%" },
             Style::new(18.0, 800, th.text),
         ));
         let w = snap(bx + px(10.0) + lab_w);
@@ -2486,6 +3470,13 @@ impl PlayerView {
             None
         };
         let c = ipos(r.min.x + snap(bx / 2.0), cy);
+        // lit: a glow round the knob (red also frames the unit: the guitar muted)
+        if let Some(l) = lit.filter(|_| enabled) {
+            if l == hud::Lit::Red {
+                hud::frame(&p, r.expand2(vec2(px(8.0), px(6.0))), l);
+            }
+            hud::knob_glow(&p, c, bx - px(10.0), l);
+        }
         if enabled {
             let hot = self.dial_interact(ui, r, kind);
             let _ = hot;
@@ -2505,8 +3496,8 @@ impl PlayerView {
         }
         let tx = snap(r.min.x + bx + px(10.0));
         caps(&p, label, ipos(tx, cy - px(1.0)), 11.0, Align2::LEFT_BOTTOM, None);
-        let col = if accent {
-            th.accent_ink
+        let col = if let Some(l) = lit.filter(|_| enabled) {
+            l.color()
         } else if enabled {
             th.text
         } else {
@@ -2536,6 +3527,8 @@ impl PlayerView {
             Key(&'static str),
             Meter,
             You,
+            /// A setting away from normal (amber) or the guitar muted (red).
+            Chip(String, hud::Lit),
         }
         let mut items: Vec<It> = Vec::new();
         let led;
@@ -2562,22 +3555,48 @@ impl PlayerView {
                             items.push(It::You);
                         }
                         if e.monitor() {
-                            items.push(It::Text(
-                                format!(
-                                    "hearing guitar  ·  {}  ·  {}%",
-                                    tone_label(&e.tone()).to_lowercase(),
-                                    (e.guitar_gain() * 100.0).round() as i64
-                                ),
-                                th.caption,
-                                500,
-                            ));
+                            // T's tones are chips; as is and the pedalboard are the usual sound
+                            let tone = e.tone();
+                            let picked = matches!(
+                                tone,
+                                qrs_audio::tone::ToneSpec::Preset { .. }
+                                    | qrs_audio::tone::ToneSpec::Custom { .. }
+                            );
+                            if picked {
+                                items.push(It::Text("hearing guitar".into(), th.caption, 500));
+                                items.push(It::Chip(format!("tone: {}", tone_label(&tone)), hud::Lit::Amber));
+                            } else {
+                                items.push(It::Text(
+                                    format!("hearing guitar  ·  {}", tone_label(&tone).to_lowercase()),
+                                    th.caption,
+                                    500,
+                                ));
+                            }
                         } else {
-                            items.push(It::Text("guitar sound off".into(), th.caption, 500));
-                            items.push(It::Key("M"));
+                            items.push(It::Chip("guitar muted  ·  M".into(), hud::Lit::Red));
                         }
                     }
                 }
             }
+        }
+        // what's away from normal: easier, the sync and the guitar's timing
+        if self.mastery < 0.999 {
+            items.push(It::Chip(
+                format!("easier: {}%", (self.mastery * 100.0).round() as i64),
+                hud::Lit::Amber,
+            ));
+        }
+        if self.offset.abs() >= 0.0005 {
+            items.push(It::Chip(
+                format!("sync {:+.0} ms", self.offset * 1000.0),
+                hud::Lit::Amber,
+            ));
+        }
+        if self.input_offset.abs() >= 0.0005 {
+            items.push(It::Chip(
+                format!("guitar {:+.0} ms", self.input_offset * 1000.0),
+                hud::Lit::Amber,
+            ));
         }
         let (gap, h) = (px(12.0), px(34.0));
         let widths: Vec<f32> = items
@@ -2587,6 +3606,7 @@ impl PlayerView {
                 It::Key(k) => cap_w(&ctx, k),
                 It::Meter => px(70.0),
                 It::You => text::width(&ctx, "you: C#3 −50¢", Style::new(13.0, 700, th.text)),
+                It::Chip(s, _) => hud::chip_width(&ctx, s),
             })
             .collect();
         let pick_d = px(22.0);
@@ -2656,6 +3676,11 @@ impl PlayerView {
                 It::Key(k) => {
                     keycap(&p, k, pos2(cx, cy), Align2::LEFT_CENTER, 11.0, CapOn::Material);
                 }
+                It::Chip(s, lit) => {
+                    if ipx(room) >= ipx(*wd) {
+                        hud::chip(&p, s, pos2(cx, cy), *lit);
+                    }
+                }
                 It::Meter => {
                     let peak = self.engine().map(|e| e.meters().peak).unwrap_or(0.0);
                     knobs::led_meter(
@@ -2696,6 +3721,305 @@ impl PlayerView {
         strip
     }
 
+    /// The RS Highway key's width: the first key of the tab's and the highway's floating toolbars.
+    pub(super) fn rs_highway_w(ctx: &egui::Context) -> f32 {
+        let tw_ = text::width(ctx, "RS Highway", Style::new(13.0, 800, Color32::WHITE));
+        snap(
+            px(12.0)
+                + px(20.0)
+                + px(8.0)
+                + tw_
+                + px(8.0)
+                + qrs_ui::keys::keycap_width(ctx, "V", 11.0)
+                + px(10.0),
+        )
+    }
+
+    /// The RS Highway key (owner request, 2026-10-29) in `r`, on its toolbar's painter (so it fades, shows through
+    /// and rolls away with it): a pill with a soft glow, emerald in the dark themes, orange in Daylight; outlined
+    /// while the tab shows, filled while the highway does. V does the same.
+    pub(super) fn draw_rs_highway(p: &egui::Painter, r: Rect, on: bool, hot: bool) {
+        let th = t();
+        let (col, ink) = if theme::is_dark() {
+            (Color32::from_rgb(52, 199, 123), Color32::from_rgb(6, 34, 20))
+        } else {
+            (Color32::from_rgb(232, 112, 30), Color32::from_rgb(255, 248, 240))
+        };
+        let (h, cy) = (r.height(), r.center().y);
+        paint::glow(
+            p,
+            r,
+            col,
+            if hot { 7.0 } else { 5.0 },
+            Some(if on || hot { 0.55 } else { 0.35 }),
+            Some(h / 2.0),
+        );
+        let fg = if on {
+            p.rect_filled(r, h / 2.0, col);
+            ink
+        } else {
+            p.rect_filled(r, h / 2.0, th.base);
+            p.rect_filled(r, h / 2.0, col.gamma_multiply(if hot { 0.28 } else { 0.18 }));
+            p.rect_stroke(r, h / 2.0, egui::Stroke::new(1.5, col), egui::StrokeKind::Inside);
+            col
+        };
+        icons::icon(p, Icon::Highway, pos2(r.min.x + px(22.0), cy), 15.0, fg);
+        text::draw(
+            p,
+            "RS Highway",
+            pos2(r.min.x + px(40.0), cy),
+            Align2::LEFT_CENTER,
+            Style::new(13.0, 800, fg),
+            None,
+        );
+        qrs_ui::keys::keycap(
+            p,
+            "V",
+            pos2(r.max.x - px(10.0), cy),
+            Align2::RIGHT_CENTER,
+            11.0,
+            if on {
+                qrs_ui::keys::CapOn::Accent
+            } else {
+                qrs_ui::keys::CapOn::Material
+            },
+        );
+    }
+
+    /// The tab's toolbar (owner request, D31), floating at its top right, over the tail of the row already played:
+    /// zoom, the bars' width and the strings' spacing as sunken pills (− icon amount +, cut in like the search
+    /// field), then compact rows and full screen as sunken round keys. See-through until the pointer is on it (the
+    /// tab shows behind), solid while hovered or just after a size changed. Left alone for a few seconds, it rolls up
+    /// to the right into a small round key (sliders) that opens it again when the pointer comes onto it.
+    fn draw_tab_tools(&mut self, ui: &mut Ui, well: Rect) {
+        let ctx = ui.ctx().clone();
+        let th = t();
+        let hover = ctx.input(|i| i.pointer.hover_pos());
+        let (key, pill, gap, pad) = (px(26.0), px(112.0), px(6.0), px(5.0));
+        let div_gap = px(8.0);
+        let rs_w = Self::rs_highway_w(&ctx);
+        let w =
+            snap(2.0 * pad + rs_w + 3.0 * gap + 3.0 * pill + 2.0 * div_gap + px(1.0) + 2.0 * key + px(8.0));
+        let h = snap(key + 2.0 * pad);
+        let full = Rect::from_min_size(ipos(well.max.x - px(16.0) - w, well.min.y + px(12.0)), vec2(w, h));
+        // the pointer on what's showing (open, or the rolled-up key) keeps it open, as does a size changing
+        let shown = if self.tools_rect == Rect::NOTHING {
+            full
+        } else {
+            self.tools_rect
+        };
+        let over = hover.is_some_and(|h| shown.contains(h));
+        let changed = self.zoom_at.is_some_and(|t| t.elapsed().as_secs_f32() < ZOOM_HUD);
+        if over || changed {
+            self.tools_active = Instant::now();
+        }
+        let open = self.tools_active.elapsed().as_secs_f32() < TOOLS_IDLE;
+        let c = ctx.animate_bool_with_time(egui::Id::new("tab-tools-open"), open, 0.3);
+        let solid = ctx.animate_bool_with_time(egui::Id::new("tab-tools"), over || changed, 0.2);
+        // rolled up it's a little plainer to see (it's small), open it's see-through until hovered
+        let alpha = (0.35 + 0.65 * solid).max(0.85 * (1.0 - c));
+        let cur_w = snap(h + (w - h) * c);
+        let plate = Rect::from_min_size(pos2(full.max.x - cur_w, full.min.y), vec2(cur_w, h));
+        self.tools_rect = plate;
+        // the buttons answer only when it's fully open
+        let live = c > 0.99;
+        let mut tu = ui.new_child(egui::UiBuilder::new().max_rect(plate));
+        tu.multiply_opacity(alpha);
+        let outer = tu.painter().clone();
+        paint::floating(&outer, plate, Some(12.0 + (h / 2.0 - 12.0) * (1.0 - c)));
+        let cy = mid_y(plate);
+        if c < 1.0 {
+            // the rolled-up key: the sliders in a sunken round well, at the right end
+            let k = Rect::from_center_size(pos2(plate.max.x - h / 2.0, cy), Vec2::splat(key));
+            let mut kp = outer.clone();
+            kp.multiply_opacity(1.0 - c);
+            paint::inset(&kp, k, None, 3.0, Fill::Base);
+            icons::icon(
+                &kp,
+                Icon::Sliders,
+                mid(k),
+                16.0,
+                if over { th.text } else { th.text_2 },
+            );
+            if over {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+            }
+        }
+        if c <= 0.0 {
+            if !open && c > 0.0 || solid > 0.0 && solid < 1.0 {
+                ctx.request_repaint();
+            }
+            return;
+        }
+        // the contents slide in from the right as it opens (clipped to the plate)
+        let mut p = outer.with_clip_rect(plate);
+        p.multiply_opacity(c);
+        let hit = |r: Rect, id: (&str, &str), sense: Sense| -> (bool, bool, bool) {
+            if !live {
+                return (false, false, false);
+            }
+            let resp = interact(&tu, r, id, sense);
+            (resp.hovered(), resp.is_pointer_button_down_on(), resp.clicked())
+        };
+        let mut tip: Option<(&str, &str, Rect)> = None;
+        let mut x = full.min.x + (w - cur_w) + pad;
+        // the RS Highway key first (it fades and rolls away with the toolbar)
+        {
+            let r = Rect::from_min_size(ipos(x, cy - snap(key / 2.0)), vec2(rs_w, key));
+            let (hovered, _, clicked) = hit(r, ("tab-tool", "rs-highway"), Sense::click());
+            Self::draw_rs_highway(&p, r, false, hovered);
+            if hovered {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+                tip = Some(("Rocksmith-style highway", "V", r));
+            }
+            if clicked {
+                self.acts.push("view".into());
+            }
+            x = r.max.x + gap;
+        }
+        let steppers: [(Icon, f32, &str, [(&str, &str, &str); 2], &str); 3] = [
+            (
+                Icon::Search,
+                self.tab.zoom,
+                "Zoom",
+                [("Zoom out", "↓", "zoom_out"), ("Zoom in", "↑", "zoom_in")],
+                "zoom_reset",
+            ),
+            (
+                Icon::Width,
+                self.tab.width_k,
+                "Bar width",
+                [
+                    ("Narrower bars", "Alt ←", "tab_narrower"),
+                    ("Wider bars", "Alt →", "tab_wider"),
+                ],
+                "tab_width_reset",
+            ),
+            (
+                Icon::Height,
+                self.tab.height_k,
+                "String spacing",
+                [
+                    ("Strings closer", "Alt ↓", "tab_shorter"),
+                    ("Strings apart", "Alt ↑", "tab_taller"),
+                ],
+                "tab_height_reset",
+            ),
+        ];
+        for (i, &(icon, v, what, keys, reset)) in steppers.iter().enumerate() {
+            // what it sizes: its icon as a plain label before the pill (not in it, where it looked like a key)
+            let lab = Rect::from_min_size(ipos(x, cy - snap(key / 2.0)), vec2(px(18.0), key));
+            icons::icon(&p, icon, mid(lab), 14.0, th.caption);
+            if hit(lab, ("tab-tool-label", what), Sense::hover()).0 {
+                tip = Some((what, "", lab));
+            }
+            let r = Rect::from_min_max(
+                pos2(snap(lab.max.x + px(3.0)), lab.min.y),
+                pos2(x + pill, lab.max.y),
+            );
+            paint::inset(&p, r, None, 3.0, Fill::Base);
+            // − and + at the pill's ends, the amount between (a click on it puts it back to 100%)
+            let minus = Rect::from_min_size(r.min, Vec2::splat(key));
+            let plus = Rect::from_min_size(ipos(r.max.x - key, r.min.y), Vec2::splat(key));
+            for (b, ic, (label, k, act)) in [(minus, Icon::Minus, keys[0]), (plus, Icon::Plus, keys[1])] {
+                let (hovered, down, clicked) = hit(b, ("tab-tool", act), Sense::click());
+                let ink = if down {
+                    th.accent
+                } else if hovered {
+                    ctx.set_cursor_icon(CursorIcon::PointingHand);
+                    p.circle_filled(mid(b), snap(key / 2.0 - px(3.0)), th.line);
+                    th.text
+                } else {
+                    th.caption
+                };
+                icons::icon(&p, ic, mid(b), 12.0, ink);
+                if clicked {
+                    self.acts.push(act.into());
+                }
+                if hovered {
+                    tip = Some((label, k, b));
+                }
+            }
+            let mid_r = Rect::from_min_max(pos2(minus.max.x, r.min.y), pos2(plus.min.x, r.max.y));
+            let (hovered, _, clicked) = hit(mid_r, ("tab-tool-read", what), Sense::click());
+            txt(
+                &p,
+                &format!("{}%", (v * 100.0).round() as i64),
+                mid(mid_r),
+                12.0,
+                if hovered { th.text } else { th.accent_ink },
+                800,
+                Align2::CENTER_CENTER,
+                None,
+            );
+            if hovered {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+                tip = Some((what, "click: 100%", mid_r));
+            }
+            if clicked {
+                self.acts.push(reset.into());
+            }
+            x = r.max.x + if i < 2 { gap } else { 0.0 };
+        }
+        // a groove between the steppers and the switches
+        x = snap(x + div_gap);
+        p.rect_filled(
+            Rect::from_min_size(ipos(x, full.min.y + px(8.0)), vec2(px(1.0), snap(h - px(16.0)))),
+            0.0,
+            th.line,
+        );
+        x = snap(x + px(1.0) + div_gap);
+        let toggles = [
+            (Icon::Rows, self.tab.compact, "Compact rows", "C", "tab_compact"),
+            (
+                if self.tab_full { Icon::Shrink } else { Icon::Expand },
+                self.tab_full,
+                if self.tab_full {
+                    "Leave full screen"
+                } else {
+                    "Full-screen tab"
+                },
+                if self.tab_full { "F / Esc" } else { "F" },
+                "tab_full",
+            ),
+        ];
+        for (icon, on, label, keycap, act) in toggles {
+            let r = Rect::from_min_size(ipos(x, cy - snap(key / 2.0)), Vec2::splat(key));
+            let (hovered, down, clicked) = hit(r, ("tab-tool", act), Sense::click());
+            paint::inset(&p, r, None, if down { 4.0 } else { 3.0 }, Fill::Base);
+            if on {
+                paint::ring(&p, r, None, 1.5, th.accent, true);
+            }
+            let ink = if on {
+                th.accent_ink
+            } else if hovered {
+                th.text
+            } else {
+                th.caption
+            };
+            icons::icon(&p, icon, mid(r), 13.0, ink);
+            if hovered {
+                ctx.set_cursor_icon(CursorIcon::PointingHand);
+                tip = Some((label, keycap, r));
+            }
+            if clicked {
+                self.acts.push(act.into());
+            }
+            x = snap(r.max.x + px(4.0));
+        }
+        if let Some((label, k, r)) = tip {
+            self.tip = Some((
+                label.into(),
+                k.into(),
+                ipos(r.max.x, plate.max.y + px(8.0)),
+                Align2::RIGHT_TOP,
+            ));
+        }
+        if open || c < 1.0 || solid > 0.0 && solid < 1.0 {
+            ctx.request_repaint(); // (open, it rolls up on its own after a while)
+        }
+    }
+
     /// For a moment after the tab's zoom changes: how far in it is, floating at the tab's top right.
     fn draw_zoom_hud(&self, ui: &Ui, well: Rect) {
         let Some(at) = self.zoom_at else { return };
@@ -2705,9 +4029,19 @@ impl PlayerView {
         }
         let p = ui.painter().clone();
         let th = t();
-        let z = self.tab.zoom;
+        // the zoom, or the bars' width or the strings' spacing on top of it, with its range
+        let (z, lo, hi, label) = match self.zoom_what {
+            ZoomWhat::Zoom => (self.tab.zoom, 0.5, 2.5, ""),
+            ZoomWhat::Width => (self.tab.width_k, WIDTH_K.0, WIDTH_K.1, "Width "),
+            ZoomWhat::Height => (self.tab.height_k, HEIGHT_K.0, HEIGHT_K.1, "Spacing "),
+        };
+        let extra = if label.is_empty() {
+            0.0
+        } else {
+            text::width(ui.ctx(), label, Style::new(16.0, 800, th.text))
+        };
         // panel.topright = (well.right - int(18 * s), well.y + int(18 * s))
-        let (pw, ph) = (px(196.0), px(44.0));
+        let (pw, ph) = (snap(px(196.0) + extra), px(44.0));
         let panel = Rect::from_min_size(
             ipos(well.max.x - px(18.0) - pw, well.min.y + px(18.0)),
             vec2(pw, ph),
@@ -2729,7 +4063,7 @@ impl PlayerView {
         );
         let tr = txt(
             &p,
-            &format!("{}%", (z * 100.0).round() as i64),
+            &format!("{label}{}%", (z * 100.0).round() as i64),
             ipos(panel.min.x + px(40.0), cy),
             16.0,
             k(th.text),
@@ -2743,7 +4077,7 @@ impl PlayerView {
             vec2(snap(panel.max.x - px(18.0) - x0), px(6.0)),
         );
         paint::inset(&p, track, None, 2.0, Fill::Base);
-        let u = ((z.ln() - 0.5f32.ln()) / (2.5f32.ln() - 0.5f32.ln())).clamp(0.0, 1.0);
+        let u = ((z.ln() - lo.ln()) / (hi.ln() - lo.ln())).clamp(0.0, 1.0);
         paint::pill(
             &p,
             Rect::from_min_size(
@@ -2757,52 +4091,7 @@ impl PlayerView {
 
     /// A tooltip: the text (and a key cap) on a small raised plate, drawn over everything.
     fn draw_tip(&self, p: &Painter, label: &str, key: &str, pos: Pos2, anchor: Align2, area: Rect) {
-        let th = t();
-        let ctx = p.ctx();
-        let st = Style::new(13.0, 700, th.text);
-        let lw = text::width(ctx, label, st);
-        let kw = if key.is_empty() {
-            0.0
-        } else {
-            cap_w(ctx, key) + px(8.0)
-        };
-        let (w, h) = (snap(lw + kw + px(28.0)), px(34.0));
-        // setattr(plate, anchor, (int(pos[0]), int(pos[1]))), then clamped into the window
-        let (x, y) = (snap(pos.x), snap(pos.y));
-        let x = match anchor.x() {
-            egui::Align::Min => x,
-            egui::Align::Center => x - snap(w / 2.0),
-            egui::Align::Max => x - w,
-        };
-        let y = match anchor.y() {
-            egui::Align::Min => y,
-            egui::Align::Center => y - snap(h / 2.0),
-            egui::Align::Max => y - h,
-        };
-        let mut plate = Rect::from_min_size(ipos(x, y), vec2(w, h));
-        let dx = (area.min.x - plate.min.x).max(0.0) + (area.max.x - plate.max.x).min(0.0);
-        let dy = (area.min.y - plate.min.y).max(0.0) + (area.max.y - plate.max.y).min(0.0);
-        plate = Rect::from_min_size(ipos(plate.min.x + dx, plate.min.y + dy), plate.size());
-        paint::raised(p, plate, Some(14.0), 4.0, Fill::Base, 0.0);
-        let cy = mid_y(plate);
-        let tr = text::draw(
-            p,
-            label,
-            ipos(plate.min.x + px(14.0), cy),
-            Align2::LEFT_CENTER,
-            st,
-            None,
-        );
-        if !key.is_empty() {
-            keycap(
-                p,
-                key,
-                ipos(tr.max.x + px(8.0), cy),
-                Align2::LEFT_CENTER,
-                11.0,
-                CapOn::Material,
-            );
-        }
+        draw_tip(p, label, key, pos, anchor, area);
     }
 
     /// The transport (back, play or pause, forward) as round keys in a sunken cradle; the section, bar and time
@@ -2812,7 +4101,10 @@ impl PlayerView {
         let th = t();
         let ctx = ui.ctx().clone();
         let cy = mid_y(r);
-        let playing = self.transport.playing() || self.countdown_until.is_some();
+        let playing = self.transport.playing()
+            || self.countdown_until.is_some()
+            || self.waiting.is_some()
+            || self.synth.state != SynthState::Idle;
         let (pad, gap) = (px(6.0), px(12.0));
         let (small, big) = (px(48.0), px(64.0));
         let cradle = Rect::from_min_size(
@@ -2829,7 +4121,7 @@ impl PlayerView {
         );
         let play = Rect::from_min_size(ipos(back.max.x + gap, cy - snap(big / 2.0)), Vec2::splat(big));
         let fwd = Rect::from_min_size(ipos(play.max.x + gap, back.min.y), Vec2::splat(small));
-        if widgets::round_button(ui, back, "t-back", Icon::Back, 20.0, RoundKind::Ivory, false).clicked() {
+        if widgets::round_button(ui, back, "t-back", Icon::Back, 20.0, RoundKind::Stone, false).clicked() {
             self.acts.push("back".into());
         }
         // what a press does: red pauses, green plays
@@ -2847,8 +4139,21 @@ impl PlayerView {
         {
             self.acts.push("play".into());
         }
-        if widgets::round_button(ui, fwd, "t-fwd", Icon::Fwd, 20.0, RoundKind::Ivory, false).clicked() {
+        if widgets::round_button(ui, fwd, "t-fwd", Icon::Fwd, 20.0, RoundKind::Stone, false).clicked() {
             self.acts.push("fwd".into());
+        }
+        self.draw_nbn_lamp(ui, cradle);
+        let lamps_end = self.draw_mode_lamps(
+            ui,
+            cradle.max.x + px(16.0),
+            cradle.min.y - px(9.0),
+            st.rec.status(),
+        );
+        // recording what you hear (R): its lamp, time and keys on the lamps' row, a click stops it (P23.9)
+        if let Some(s) = st.rec.status()
+            && crate::recording::badge(ui, pos2(lamps_end + px(4.0), cradle.min.y - px(9.0)), s).clicked()
+        {
+            self.acts.push("rec:stop".into());
         }
         // the volumes: your guitar, then the song
         let song = self.draw_knob_unit(
@@ -2857,21 +4162,24 @@ impl PlayerView {
             "SONG",
             &format!("{}%", (self.transport.volume() * 100.0).round() as i64),
             pos2(r.max.x, cy),
-            false,
+            None,
             true,
         );
-        let gtxt = self
-            .engine()
-            .map(|e| format!("{}%", (e.guitar_gain() * 100.0).round() as i64))
-            .unwrap_or_else(|| "–".into());
+        // M mutes the guitar: the knob glows red and says so (its level stays under it)
+        let muted = self.engine().is_some_and(|e| !e.monitor());
+        let gtxt = match self.engine() {
+            Some(_) if muted => "MUTED".to_string(),
+            Some(e) => format!("{}%", (e.guitar_gain() * 100.0).round() as i64),
+            None => "–".into(),
+        };
         let has_engine = self.engine().is_some();
         let gtr = self.draw_knob_unit(
             ui,
             "gvol",
             "GUITAR",
             &gtxt,
-            ipos(song.min.x - px(16.0), cy),
-            false,
+            ipos(song.min.x - px(24.0), cy),
+            muted.then_some(hud::Lit::Red),
             has_engine,
         );
         // the seek groove, with the line over it
@@ -2932,6 +4240,14 @@ impl PlayerView {
         }
         if let (Some(la), Some(lb)) = (self.loop_a, self.loop_b) {
             let (la, lb) = (bx(la), bx(lb));
+            // the looped stretch glows over the groove
+            let span = Rect::from_min_max(
+                ipos(la, bar.min.y - px(5.0)),
+                ipos(lb.max(la + px(4.0)), bar.max.y + px(5.0)),
+            );
+            paint::glow(&p, span, th.accent, 10.0, Some(0.45), Some(6.0));
+            p.rect_filled(span, px(6.0), th.accent.gamma_multiply(0.18));
+            paint::ring(&p, span, Some(6.0), 1.5, th.accent, false);
             paint::pill(
                 &p,
                 Rect::from_min_size(
@@ -2979,7 +4295,7 @@ impl PlayerView {
             Align2::RIGHT_TOP,
             None,
         );
-        let mut right = txt(
+        let right = txt(
             &p,
             &fmt_time(pos),
             ipos(tr.min.x, top),
@@ -2989,47 +4305,36 @@ impl PlayerView {
             Align2::RIGHT_TOP,
             None,
         );
-        let mut offs = Vec::new();
-        if self.input_offset != 0.0 {
-            offs.push(format!("guitar timing {:+.0} ms", self.input_offset * 1000.0));
-        }
-        if self.offset != 0.0 {
-            offs.push(format!("sync {:+.0} ms", self.offset * 1000.0));
-        }
-        if !offs.is_empty() {
-            right = txt(
-                &p,
-                &format!("{}  ·  ", offs.join("  ·  ")),
-                ipos(right.min.x, top),
-                13.0,
-                th.caption,
-                500,
-                Align2::RIGHT_TOP,
-                Some(third),
-            );
-        }
+        // (the sync and the guitar's timing, when set, are chips in the status strip)
         let room = snap(right.min.x - left.max.x - px(24.0));
         if let (Some(la), Some(lb)) = (self.loop_a, self.loop_b)
             && ipx(room) > ipx(px(60.0))
         {
-            let mut s = format!("Loop {}–{}", fmt_time(la), fmt_time(lb));
+            let mut s = format!("LOOP  {}–{}", fmt_time(la), fmt_time(lb));
             if self.loop_passes > 0 {
                 s += &format!("  ·  pass {}", self.loop_passes);
             }
             if let Some(acc) = self.loop_acc {
                 s += &format!("  ·  {}%", (acc * 100.0).round() as i64);
             }
-            // ((left.right + right.x) // 2, top)
-            txt(
-                &p,
-                &s,
-                ipos(snap(left.max.x + right.min.x) / 2.0, top),
-                13.0,
-                th.accent_ink,
-                700,
-                Align2::CENTER_TOP,
-                Some(room),
-            );
+            // a lit chip, between the bar number and the time
+            let w = hud::chip_width(&ctx, &s);
+            let cx = snap(left.max.x + right.min.x) / 2.0;
+            let cy = top + text::line_height(&ctx, Style::new(13.0, 700, th.text)) / 2.0;
+            if ipx(room) >= ipx(w) {
+                hud::chip(&p, &s, pos2(snap(cx - w / 2.0), cy), hud::Lit::Amber);
+            } else {
+                txt(
+                    &p,
+                    &s,
+                    ipos(cx, top),
+                    13.0,
+                    th.accent_ink,
+                    700,
+                    Align2::CENTER_TOP,
+                    Some(room),
+                );
+            }
         }
         let _ = st;
     }
@@ -3300,7 +4605,7 @@ impl PlayerView {
     }
 
     /// The console: one raised panel holding the tiles (each a screen sunk into it) or the controls, with the key
-    /// that swaps them at the bottom.
+    /// that swaps them at the bottom; in a lesson, the coach too (and Lesson / Tiles / Controls at the bottom).
     fn draw_aside(&mut self, ui: &mut Ui, st: &mut AppState, aside: Rect, now: f64) {
         use qrs_ui::units::px;
         let p = ui.painter().clone();
@@ -3308,9 +4613,78 @@ impl PlayerView {
         let pad = px(16.0);
         let inner = aside.shrink(pad);
         let bh = px(48.0);
-        let btn = Rect::from_min_size(pos2(inner.min.x, inner.max.y - bh), vec2(inner.width(), bh));
-        let area = Rect::from_min_max(inner.min, pos2(inner.max.x, btn.min.y - px(12.0)));
+        let foot = Rect::from_min_size(pos2(inner.min.x, inner.max.y - bh), vec2(inner.width(), bh));
+        let area = Rect::from_min_max(inner.min, pos2(inner.max.x, foot.min.y - px(12.0)));
         self.panel_rect = area;
+        // the Shortcuts key at the foot's left (every key on a sheet), the console's swap key beside it
+        let keys = Rect::from_min_size(foot.min, vec2(px(132.0).min(foot.width() * 0.4), bh));
+        let btn = Rect::from_min_max(pos2(keys.max.x + px(10.0), foot.min.y), foot.max);
+        let kr = button(
+            ui,
+            keys,
+            "aside-keys",
+            "Shortcuts",
+            "",
+            ButtonStyle {
+                icon: Some(Icon::Rows),
+                size: 14.0,
+                r: Some(16.0),
+                active: self.shortcuts,
+                ..Default::default()
+            },
+        );
+        if kr.hovered() {
+            self.tip = Some((
+                "Every keyboard shortcut".into(),
+                "F1".into(),
+                pos2(keys.min.x, keys.min.y - px(10.0)),
+                Align2::LEFT_BOTTOM,
+            ));
+        }
+        if kr.clicked() {
+            self.acts.push("shortcuts".into());
+        }
+        if self.take_panel_up() {
+            // a take outside a lesson: its card (Close goes back to the tiles)
+            self.tile_rects.clear();
+            let full = Rect::from_min_max(area.min, btn.max);
+            self.draw_take_panel(ui, full);
+            return;
+        }
+        if let Some(showing) = self.coach.as_ref().map(|c| c.show) {
+            let sel = if showing {
+                0
+            } else if self.show_controls {
+                2
+            } else {
+                1
+            };
+            if showing {
+                self.tile_rects.clear();
+                self.draw_coach(ui, area);
+            } else if self.show_controls {
+                self.tile_rects.clear();
+                self.draw_controls(ui, st, area);
+            } else {
+                self.draw_tile_column(ui, st, area, now, aside);
+            }
+            let labels = ["Lesson", "Tiles", "Controls"];
+            let seg = Segmented::new(&labels, Some(sel));
+            let (_, hit) = widgets::segmented(ui, btn, "aside-coach", &seg);
+            if let Some(i) = hit
+                && i != sel
+            {
+                self.acts.push(
+                    match i {
+                        0 => "coach:show:lesson",
+                        1 => "coach:show:tiles",
+                        _ => "coach:show:controls",
+                    }
+                    .into(),
+                );
+            }
+            return;
+        }
         if self.show_controls {
             self.tile_rects.clear();
             self.draw_controls(ui, st, area);
@@ -3483,6 +4857,7 @@ impl PlayerView {
         let _ = summary;
         let prog = self
             .shot_stretch
+            .or_else(|| self.mixer.pending_progress())
             .or_else(|| self.stretch.as_ref().filter(|j| !j.done()).map(|j| j.progress()));
         let buffering = self.engine().is_some_and(|e| e.buffering());
         if self.pending_speed.is_some() || prog.is_some() || buffering {
@@ -3491,7 +4866,18 @@ impl PlayerView {
         if let Some((text_, tail, until)) = &self.toast
             && Instant::now() < *until
         {
-            widgets::toast(&p, text_, ipos(mid_x(well), well.min.y + px(44.0)), tail);
+            if self.toast_keys.is_empty() {
+                widgets::toast(&p, text_, ipos(mid_x(well), well.min.y + px(44.0)), tail);
+            } else {
+                // a key's flash: its caps and what it did, at the tab's foot
+                hud::flash(
+                    &p,
+                    &self.toast_keys,
+                    text_,
+                    tail,
+                    ipos(mid_x(well), well.max.y - px(48.0)),
+                );
+            }
         }
     }
 
@@ -3542,9 +4928,15 @@ impl PlayerView {
     fn draw_slowing(&self, p: &Painter, well: Rect, prog: Option<f64>) {
         let th = t();
         let pct = (self.speed() * 100.0).round() as i64;
+        let pitch_only = pct == 100 && self.mixer.pitch != 0;
         let (title, tail, u) = match prog {
             Some(pr) if self.pending_speed.is_none() => (
-                "Slowing down the rest of the song… ".to_string(),
+                if pitch_only {
+                    "Shifting the pitch of the rest of the song… "
+                } else {
+                    "Slowing down the rest of the song… "
+                }
+                .to_string(),
                 format!("{}%", (pr * 100.0).round() as i64),
                 Some(pr),
             ),
@@ -3616,10 +5008,12 @@ impl PlayerView {
 
     /// The results are up: the song ran to its end with something played.
     fn summary_up(&self) -> bool {
-        self.countdown_until.is_none()
-            && !self.transport.playing()
-            && self.transport.finished()
-            && self.scorer.groups.iter().any(|g| g.state.is_some())
+        summary_shows(
+            self.summary_dismissed,
+            self.countdown_until.is_some() || self.transport.playing(),
+            self.transport.finished(),
+            self.scorer.groups.iter().any(|g| g.state.is_some()),
+        )
     }
 
     /// The results card over the blurred, dimmed player: accuracy as a ring, the score, the counts, your best runs
@@ -3669,15 +5063,56 @@ impl PlayerView {
         } else {
             ("", th.text, None)
         };
+        // the close key at the top right (P23.12): the card goes, the song page stays as it was (a recording keeps
+        // running), with Esc's cap beside it
+        let close = Rect::from_min_size(ipos(rx - px(34.0), y + px(4.0)), Vec2::splat(px(34.0)));
+        // a plain grey well that sinks when pressed (owner: the ruby was too much here)
+        let close_resp = interact(ui, close, "sum-close", Sense::click());
+        paint::inset(
+            &p,
+            close,
+            None,
+            if close_resp.is_pointer_button_down_on() {
+                4.5
+            } else {
+                3.0
+            },
+            Fill::Base,
+        );
+        icons::icon(
+            &p,
+            Icon::X,
+            mid(close),
+            13.0,
+            if close_resp.hovered() { th.text } else { th.text_2 },
+        );
+        if close_resp.hovered() {
+            ctx.set_cursor_icon(CursorIcon::PointingHand);
+        }
+        let esc = keycap(
+            &p,
+            "Esc",
+            ipos(close.min.x - px(8.0), mid_y(close)),
+            Align2::RIGHT_CENTER,
+            11.0,
+            CapOn::Material,
+        );
+        let close_hover = close_resp.hovered()
+            || ctx
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|h| esc.contains(h));
+        if close_resp.clicked() {
+            self.acts.push("summary_close".into());
+        }
         // the header: what this was, and a chip for a new best (or why it wasn't saved)
-        let mut chip_x = rx;
+        let mut chip_x = snap(esc.min.x - px(14.0));
         if !chip_text.is_empty() {
             let cw = snap(
                 text::width(&ctx, chip_text, Style::new(13.0, 800, chip_col))
                     + px(24.0)
                     + if chip_icon.is_some() { px(20.0) } else { 0.0 },
             );
-            let chip = Rect::from_min_size(ipos(rx - cw, y + px(4.0)), vec2(cw, px(34.0)));
+            let chip = Rect::from_min_size(ipos(chip_x - cw, y + px(4.0)), vec2(cw, px(34.0)));
             paint::inset(&p, chip, Some(11.0), 2.0, Fill::Base);
             let ccy = mid_y(chip);
             let mut cx = snap(chip.min.x + px(12.0));
@@ -3940,7 +5375,7 @@ impl PlayerView {
             }
             y = snap(bx.max.y + px(20.0));
         }
-        let lib_w = snap(button_w(&ctx, "Library", "Esc", 15.0, false) + px(20.0));
+        let lib_w = snap(button_w(&ctx, "Library", "⌫", 15.0, false) + px(20.0));
         let lib = Rect::from_min_size(ipos(rx - lib_w, y), vec2(lib_w, px(54.0)));
         let again = Rect::from_min_size(pos2(lx, y), vec2(snap(lib.min.x - px(14.0) - lx), px(54.0)));
         if button(
@@ -3966,7 +5401,7 @@ impl PlayerView {
             lib,
             "sum-lib",
             "Library",
-            "Esc",
+            "⌫", // (Backspace: Esc closes the card)
             ButtonStyle {
                 size: 15.0,
                 r: Some(17.0),
@@ -3977,6 +5412,16 @@ impl PlayerView {
         {
             self.acts.push("library".into());
         }
+        if close_hover {
+            draw_tip(
+                &p,
+                "Close: stay on the song",
+                "Esc",
+                pos2(close.max.x, snap(close.max.y + px(8.0))),
+                Align2::RIGHT_TOP,
+                area,
+            );
+        }
     }
 }
 
@@ -3985,12 +5430,162 @@ pub fn tone_label(t: &qrs_audio::tone::ToneSpec) -> String {
         qrs_audio::tone::ToneSpec::AsIs => "As is".into(),
         qrs_audio::tone::ToneSpec::Preset { preset } => preset.label().into(),
         qrs_audio::tone::ToneSpec::Custom { .. } => "Custom".into(),
+        qrs_audio::tone::ToneSpec::Board { .. } => "Pedalboard".into(),
+    }
+}
+
+/// The results card is up: the song ran to its end (not playing or counting in) with something played, and the
+/// card wasn't closed.
+fn summary_shows(dismissed: bool, running: bool, finished: bool, judged: bool) -> bool {
+    !dismissed && !running && finished && judged
+}
+
+/// Whether a closed results card stays closed this frame: until the song plays again (a restart, a seek and
+/// play) or a run ends (P23.12).
+fn keep_dismissed(dismissed: bool, playing: bool, ended_now: bool) -> bool {
+    dismissed && !playing && !ended_now
+}
+
+/// How much of the header's transpose stepper fits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransposeForm {
+    /// "TRANSPOSE − 0 +"
+    Full,
+    /// "− 0 +"
+    Compact,
+    /// none (the "+1" chip shows a shift instead)
+    Hidden,
+}
+
+/// The stepper's form in `room` across: whole if there's room for it and `after` (what must follow it: the tuning
+/// it sounds in, when transposed), without its label if only that fits, else none.
+fn transpose_form(room: f32, full_w: f32, compact_w: f32, after: f32) -> TransposeForm {
+    if room >= full_w + after {
+        TransposeForm::Full
+    } else if room >= compact_w + after {
+        TransposeForm::Compact
+    } else {
+        TransposeForm::Hidden
+    }
+}
+
+/// A key while the results card may be up: Esc closes the card (only the card: not Esc's "back to the library",
+/// P23.12). None: the key does what it always does.
+fn summary_key(key: Key, summary_up: bool) -> Option<&'static str> {
+    (summary_up && key == Key::Escape).then_some("summary_close")
+}
+
+/// A tooltip: the text (and a key cap) on a small raised plate, drawn over everything (the player's, the amp
+/// room's).
+pub(crate) fn draw_tip(p: &Painter, label: &str, key: &str, pos: Pos2, anchor: Align2, area: Rect) {
+    let th = t();
+    let ctx = p.ctx();
+    let st = Style::new(13.0, 700, th.text);
+    let lw = text::width(ctx, label, st);
+    let kw = if key.is_empty() {
+        0.0
+    } else {
+        cap_w(ctx, key) + px(8.0)
+    };
+    let (w, h) = (snap(lw + kw + px(28.0)), px(34.0));
+    // setattr(plate, anchor, (int(pos[0]), int(pos[1]))), then clamped into the window
+    let (x, y) = (snap(pos.x), snap(pos.y));
+    let x = match anchor.x() {
+        egui::Align::Min => x,
+        egui::Align::Center => x - snap(w / 2.0),
+        egui::Align::Max => x - w,
+    };
+    let y = match anchor.y() {
+        egui::Align::Min => y,
+        egui::Align::Center => y - snap(h / 2.0),
+        egui::Align::Max => y - h,
+    };
+    let mut plate = Rect::from_min_size(ipos(x, y), vec2(w, h));
+    let dx = (area.min.x - plate.min.x).max(0.0) + (area.max.x - plate.max.x).min(0.0);
+    let dy = (area.min.y - plate.min.y).max(0.0) + (area.max.y - plate.max.y).min(0.0);
+    plate = Rect::from_min_size(ipos(plate.min.x + dx, plate.min.y + dy), plate.size());
+    paint::raised(p, plate, Some(14.0), 4.0, Fill::Base, 0.0);
+    let cy = mid_y(plate);
+    let tr = text::draw(
+        p,
+        label,
+        ipos(plate.min.x + px(14.0), cy),
+        Align2::LEFT_CENTER,
+        st,
+        None,
+    );
+    if !key.is_empty() {
+        keycap(
+            p,
+            key,
+            ipos(tr.max.x + px(8.0), cy),
+            Align2::LEFT_CENTER,
+            11.0,
+            CapOn::Material,
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::snap_at;
+
+    #[test]
+    fn a_closed_results_card_stays_closed_until_the_next_run() {
+        use super::{keep_dismissed, summary_shows};
+        // the song over, something judged: the card
+        assert!(summary_shows(false, false, true, true));
+        // closed: the page stays as it was, stopped at the end
+        assert!(!summary_shows(true, false, true, true));
+        // still closed while paused at the end, frame after frame (nothing ended anew)
+        let mut d = true;
+        for _ in 0..3 {
+            d = keep_dismissed(d, false, false);
+        }
+        assert!(d && !summary_shows(d, false, true, true));
+        // played again (Play again, Space, or a seek and play): the closing is forgotten, and the run's end shows it
+        d = keep_dismissed(d, true, false);
+        assert!(!d);
+        assert!(summary_shows(d, false, true, true));
+        // a run ending also shows it again (a recorded end, even without a frame of playing)
+        assert!(!keep_dismissed(true, false, true));
+        // never while playing, counting in, short of the end, or with nothing played
+        assert!(!summary_shows(false, true, true, true));
+        assert!(!summary_shows(false, false, false, true));
+        assert!(!summary_shows(false, false, true, false));
+    }
+
+    #[test]
+    fn esc_closes_the_results_card_first() {
+        use super::{Key, summary_key};
+        // the card up: Esc is the card's (not "library"), Space and Backspace keep their meaning
+        assert_eq!(summary_key(Key::Escape, true), Some("summary_close"));
+        assert_eq!(summary_key(Key::Space, true), None);
+        assert_eq!(summary_key(Key::Backspace, true), None);
+        // no card (or closed): Esc is back to the library again
+        assert_eq!(summary_key(Key::Escape, false), None);
+    }
+
+    #[test]
+    fn the_transpose_stepper_loses_its_label_before_it_goes() {
+        use super::{TransposeForm, transpose_form};
+        // (60 across kept for what follows it)
+        let f = |room| transpose_form(room, 150.0, 80.0, 60.0);
+        assert_eq!(f(400.0), TransposeForm::Full);
+        assert_eq!(f(210.0), TransposeForm::Full);
+        assert_eq!(f(209.0), TransposeForm::Compact);
+        assert_eq!(f(140.0), TransposeForm::Compact);
+        assert_eq!(f(139.0), TransposeForm::Hidden);
+        assert_eq!(f(0.0), TransposeForm::Hidden);
+    }
+
+    #[test]
+    fn the_rec_key_is_r() {
+        assert_eq!(super::r_key(false, false), super::hud::REC_ACT);
+        assert_eq!(super::hud::REC_ACT, "rec:press");
+        assert_eq!(super::r_key(false, true), "rec:stop");
+        assert_eq!(super::r_key(true, false), "take:record");
+    }
 
     #[test]
     fn snap_keeps_the_python_pixels() {

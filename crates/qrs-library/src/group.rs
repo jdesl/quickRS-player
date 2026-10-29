@@ -182,17 +182,17 @@ mod tests {
     #[test]
     fn twins_group_by_provenance_or_name() {
         let mut songs = vec![
-            song(r"d\abc_p.psarc", "psarc", "AC/DC", "Back In Black", 255.0),
+            song(r"d/abc_p.psarc", "psarc", "AC/DC", "Back In Black", 255.0),
             song(
-                r"f\AC-DC - Back in Black.feedpak",
+                r"f/AC-DC - Back in Black.feedpak",
                 "feedpak",
                 "AC/DC",
                 "Back in Black",
                 255.4,
             ),
-            song(r"d\other_p.psarc", "psarc", "Band", "Song", 200.0),
-            song(r"f\renamed.feedpak", "feedpak", "Band X", "Song X", 10.0),
-            song(r"f\Band - Song (live).feedpak", "feedpak", "Band", "Song", 260.0),
+            song(r"d/other_p.psarc", "psarc", "Band", "Song", 200.0),
+            song(r"f/renamed.feedpak", "feedpak", "Band X", "Song X", 10.0),
+            song(r"f/Band - Song (live).feedpak", "feedpak", "Band", "Song", 260.0),
         ];
         songs[3].source_id = "other_p.psarc|".into();
         let g = group(&songs, Prefer::Psarc);

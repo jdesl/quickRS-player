@@ -11,8 +11,11 @@
 //! `Shared` (atomics, a seqlock for the clock, the capture ring).
 
 pub mod input;
+pub mod jam;
 pub mod onset;
 pub mod output;
+pub mod record;
+pub mod rewind;
 pub mod ring;
 
 use std::sync::Arc;
@@ -46,18 +49,22 @@ impl Duplex {
         let frames = (inp.len() / in_ch).min(out.len() / out_ch);
         let max = self.input.max_block().min(self.output.max_block());
         let rate = self.output.rate as f64;
+        // the guitar's round trip: played (captured, less the input's latency) to heard (played, plus the output's)
+        let trip = (play_ns as f64 + self.output.extra_latency * 1e9)
+            - (capture_ns as f64 - self.input.extra_latency * 1e9);
+        self.output.guitar_delay = (trip.max(0.0) * 1e-9 * rate).round() as u64;
         let mut f = 0;
         while f < frames {
             let n = (frames - f).min(max);
             let dt = (f as f64 / rate * 1e9) as u64;
-            let g = self
-                .input
-                .process_block(&inp[f * in_ch..(f + n) * in_ch], in_ch, capture_ns + dt);
+            let (wet, dry) =
+                self.input
+                    .process_block(&inp[f * in_ch..(f + n) * in_ch], in_ch, capture_ns + dt);
             self.output.process_block(
                 &mut out[f * out_ch..(f + n) * out_ch],
                 out_ch,
                 play_ns + dt,
-                Some(g),
+                Some((wet, dry)),
             );
             f += n;
         }
@@ -77,6 +84,10 @@ pub struct Shared {
     pub ch_peaks: [AtomicF32; MAX_IN_CHANNELS],
     pub in_channels: AtomicU32,
     pub out_peak: AtomicF32,
+    /// The guitar's peak after the tone (the pedalboard's output meter).
+    pub tone_peak: AtomicF32,
+    /// Input callbacks whose guitar channel reached full scale (the interface clipping), counted up.
+    pub in_clips: AtomicU32,
     /// Frames into the playing buffer.
     pub frame: AtomicU64,
     pub playing: AtomicBool,
@@ -102,6 +113,12 @@ pub struct Shared {
     pub last_out_ns: AtomicU64,
     /// Worst callback work time (ns) since the last reset, for the bench and the status page.
     pub max_work_ns: AtomicU64,
+    /// The newest `OutCmd::Mark` the output has applied, stored after the clock that shows it (Release).
+    pub seek_mark: AtomicU64,
+    /// When the newest guitar sample the input handed on was played (ns; the looper's round trip from it).
+    pub in_newest_ns: AtomicU64,
+    /// The jam: its beat clock and the looper's state.
+    pub jam: jam::JamShared,
 }
 
 impl Shared {
@@ -114,6 +131,8 @@ impl Shared {
             ch_peaks: Default::default(),
             in_channels: AtomicU32::new(0),
             out_peak: AtomicF32::default(),
+            tone_peak: AtomicF32::default(),
+            in_clips: AtomicU32::new(0),
             frame: AtomicU64::new(0),
             playing: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -130,6 +149,9 @@ impl Shared {
             last_in_ns: AtomicU64::new(0),
             last_out_ns: AtomicU64::new(0),
             max_work_ns: AtomicU64::new(0),
+            seek_mark: AtomicU64::new(0),
+            in_newest_ns: AtomicU64::new(0),
+            jam: jam::JamShared::default(),
         }
     }
 
@@ -231,16 +253,29 @@ pub trait ToneProcessor: Send {
     fn reset(&mut self);
     /// New knob values on the running processor (no allocation).
     fn set_params(&mut self, _p: &crate::tone::ToneParams) {}
+    /// A change to a running pedalboard (no allocation). Returns a pedal it no longer needs, for the trash (a tone
+    /// that isn't a board hands back the pedal the command carried).
+    fn board(&mut self, cmd: crate::board::BoardCmd) -> Option<Box<dyn crate::board::Pedal>> {
+        cmd.into_pedal()
+    }
+    /// A pedal the board let go of while processing (a removed block whose tail has died), for the trash.
+    fn trash(&mut self) -> Option<Box<dyn crate::board::Pedal>> {
+        None
+    }
 }
 
 /// Commands for the output side.
 pub enum OutCmd {
     /// Load (Some) or unload (None) the song; resets the transport to the start, paused.
     Song(Option<Arc<SongBuffer>>),
+    /// Another version of the same song (a new stem mix): the position, play state and slowed-down copy stay.
+    Replace(Arc<SongBuffer>),
     /// Start playing, optionally from a song time (seconds).
     Play(Option<f64>),
     Pause,
     Seek(f64),
+    /// The seeks and plays-from sent before this one are applied: publish `n` as `Shared::seek_mark` with the clock.
+    Mark(u64),
     /// Play at `speed` of the original tempo from this stretched buffer (None = the original), keeping the position.
     Speed(f64, Option<Arc<StretchBuffer>>),
     SongGain(f32),
@@ -257,6 +292,10 @@ pub enum OutCmd {
     },
     /// The guitar from another device (two-device mode): its cushion, or None when that input went away.
     Cushion(Option<Box<output::Cushion>>),
+    /// The metronome, drums, backing, looper and Rewind.
+    Jam(jam::JamCmd),
+    /// Copy what's played into this record tap (None: stop).
+    Record(Option<Arc<record::RecordTap>>),
 }
 
 /// Commands for the input side.
@@ -266,11 +305,15 @@ pub enum InCmd {
     Tone(Option<Box<dyn ToneProcessor>>),
     /// New knob values for the running tone.
     ToneParams(crate::tone::ToneParams),
+    /// A change to the running pedalboard.
+    Board(crate::board::BoardCmd),
     Monitor(bool),
     /// Gain (linear) on the monitored guitar before the tone.
     InputGain(f32),
     /// Minimum onset energy (raised for microphones).
     OnsetFloor(f32),
+    /// Hand the guitar (dry and toned) to the output even with monitoring off (for the looper and Rewind).
+    Feed(bool),
 }
 
 /// Buffers on their way out of an audio thread, to be freed by the control thread.
@@ -279,7 +322,13 @@ pub enum Trash {
     Stretch(Arc<StretchBuffer>),
     Clip(Arc<Clip>),
     Tone(Box<dyn ToneProcessor>),
+    Pedal(Box<dyn crate::board::Pedal>),
     Cushion(Box<output::Cushion>),
+    Kit(Arc<crate::jam::DrumKit>),
+    Backing(Arc<crate::jam::BackingClip>),
+    LoopStore(Box<jam::LoopStore>),
+    Rewind(Arc<rewind::RewindRing>),
+    Record(Arc<record::RecordTap>),
 }
 
 /// Hand something to the trash queue without ever freeing it here (if the queue is full, leak it).

@@ -11,7 +11,7 @@
 //! - the engine cross-fades a replaced clip (no pop when restarting).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use parking_lot::Mutex;
 use qrs_formats::model::Techs;
@@ -276,144 +276,24 @@ pub fn render(
         .collect();
     let length = ((end - start) / o.speed * rf) as usize;
     let mut buf = vec![0.0f64; length + (TAIL * rf) as usize + rate as usize];
-    let mut onsets: Vec<f64> = sel.iter().map(|g| g.t).collect();
-    onsets.dedup_by(|a, b| a == b);
-    // chord strums: notes sharing a time are spread low string → high string
-    let mut order = vec![0usize; sel.len()];
-    for i in 1..sel.len() {
-        if sel[i - 1].t == sel[i].t {
-            order[i] = order[i - 1] + 1;
-        }
-    }
-    for (i, g) in sel.iter().enumerate() {
-        if o.cancel.load(Ordering::Relaxed) {
-            return None;
-        }
-        let tech = g.tech;
-        if tech.has(Techs::IGNORE) {
-            continue;
-        }
-        let nxt_same = sel[i + 1..]
-            .iter()
-            .find(|h| h.string == g.string && h.t > g.t)
-            .map(|h| h.t);
-        let j = onsets.partition_point(|&t| t <= g.t);
-        let nxt_any = onsets.get(j).copied();
-        // how long it rings (chart seconds): its sustain, else until the next notes come in (chords and sustains
-        // ring on a little), never past the next note on the same string
-        let mut dur = if g.sus > 0.05 {
-            g.sus + 0.12
-        } else if let Some(n) = nxt_any {
-            ((n - g.t) + if g.in_chord { 0.5 } else { 0.15 }).min(1.6)
-        } else {
-            1.6
-        };
-        if let Some(n) = nxt_same {
-            dur = dur.min(n - g.t + 0.01);
-        }
-        if tech.has(Techs::PALM_MUTE) {
-            dur = dur.min(0.22);
-        }
-        let dur_s = (dur / o.speed).max(0.03);
-        let f = midi_hz(note_pitch(g, opens));
-        let legato = tech.has(Techs::HAMMER_ON) || tech.has(Techs::PULL_OFF) || tech.has(Techs::TAP);
-        let (mut t60, mut bright, mut gain) = if o.bass {
-            if tech.has(Techs::SLAP) || tech.has(Techs::POP) {
-                (3.5, 0.85, 1.2)
-            } else {
-                (3.5, 0.35, 1.0)
-            }
-        } else {
-            (
-                if f < 200.0 {
-                    4.0
-                } else if f < 500.0 {
-                    2.6
-                } else {
-                    1.6
-                },
-                0.6,
-                1.0,
-            )
-        };
-        if g.in_chord {
-            gain *= 0.7;
-        }
-        if legato {
-            bright *= 0.5;
-            gain *= 0.6;
-        }
-        if tech.has(Techs::PALM_MUTE) {
-            t60 = 0.22;
-            bright = 0.2;
-        }
-        if tech.has(Techs::ACCENT) {
-            gain *= 1.3;
-        }
-        let at = ((g.t - start) / o.speed).max(0.0) + order[i] as f64 * STRUM;
-        let mut tone: Vec<f64> = if tech.has(Techs::FRET_HAND_MUTE) {
-            // a dead "chk": a fast-dying, dark burst
-            string_tone(f, 0.05, rate, None, 0.04, 0.25, &mut rng)
-                .iter()
-                .map(|v| v * 0.6 * gain)
-                .collect()
-        } else if tech.has(Techs::TREMOLO) {
-            let hits = ((dur_s / 0.075) as usize).max(1);
-            (0..hits)
-                .flat_map(|_| string_tone(f, 0.075, rate, None, t60, bright, &mut rng))
-                .map(|v| v * gain)
-                .collect()
-        } else {
-            let semis = pitch_curve(g, dur_s, rate);
-            let mut t = if tech.has(Techs::HARMONIC) {
-                string_tone(f, dur_s, rate, semis.as_deref(), t60 * 1.3, 0.9, &mut rng)
-                    .iter()
-                    .map(|v| v * 0.7 * gain)
-                    .collect::<Vec<_>>()
-            } else {
-                let mut t: Vec<f64> = string_tone(f, dur_s, rate, semis.as_deref(), t60, bright, &mut rng)
-                    .iter()
-                    .map(|v| v * gain)
-                    .collect();
-                if tech.has(Techs::PINCH_HARMONIC) {
-                    // the squeal rides on top of the fretted note
-                    let sq = string_tone(
-                        f * 2f64.powf(19.0 / 12.0),
-                        dur_s,
-                        rate,
-                        semis.as_deref(),
-                        t60,
-                        0.95,
-                        &mut rng,
-                    );
-                    for (a, b) in t.iter_mut().zip(sq) {
-                        *a += b * 0.6 * gain;
-                    }
-                }
-                t
-            };
-            if tech.has(Techs::UNPITCHED_SLIDE) {
-                let n = t.len().max(1);
-                for (k, v) in t.iter_mut().enumerate() {
-                    *v *= (1.0 - k as f64 / n as f64).sqrt();
-                }
-            }
-            t
-        };
-        // a short release so cut-off notes don't click
-        let rel = tone.len().min((0.03 * rf) as usize);
-        if rel > 1 {
-            let n = tone.len();
-            for k in 0..rel {
-                tone[n - rel + k] *= 1.0 - k as f64 / (rel - 1) as f64;
-            }
-        }
-        let a = (at * rf) as usize;
-        for (k, v) in tone.iter().enumerate() {
-            if let Some(slot) = buf.get_mut(a + k) {
+    let ok = pluck_notes(
+        &sel,
+        opens,
+        start,
+        o.speed,
+        o.bass,
+        rate,
+        &mut rng,
+        o.cancel,
+        None,
+        |k, v| {
+            if let Some(slot) = buf.get_mut(k) {
                 *slot += v;
             }
-        }
+        },
+    );
+    if !ok {
+        return None;
     }
     let peak = buf.iter().fold(0.0f64, |m, v| m.max(v.abs()));
     if peak > 0.0 {
@@ -461,6 +341,166 @@ pub fn render(
         }
     }
     Some(out.iter().flat_map(|&v| [v, v]).collect())
+}
+
+/// Plucks each of `sel` (in time order) into `add(sample, value)`: a note at chart time t lands at
+/// (t - start) / speed seconds (a chord's notes strummed). `progress` (if any) counts up to 1000 as it goes. False
+/// if cancelled.
+#[allow(clippy::too_many_arguments)]
+fn pluck_notes(
+    sel: &[&SynthNote],
+    opens: &[i32],
+    start: f64,
+    speed: f64,
+    bass: bool,
+    rate: u32,
+    rng: &mut Rng,
+    cancel: &AtomicBool,
+    progress: Option<&AtomicU32>,
+    mut add: impl FnMut(usize, f64),
+) -> bool {
+    let rf = rate as f64;
+    let mut onsets: Vec<f64> = sel.iter().map(|g| g.t).collect();
+    onsets.dedup_by(|a, b| a == b);
+    // chord strums: notes sharing a time are spread low string → high string
+    let mut order = vec![0usize; sel.len()];
+    for i in 1..sel.len() {
+        if sel[i - 1].t == sel[i].t {
+            order[i] = order[i - 1] + 1;
+        }
+    }
+    for (i, g) in sel.iter().enumerate() {
+        if let Some(p) = progress {
+            p.store((i * 1000 / sel.len().max(1)) as u32, Ordering::Relaxed);
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        let tech = g.tech;
+        if tech.has(Techs::IGNORE) {
+            continue;
+        }
+        let nxt_same = sel[i + 1..]
+            .iter()
+            .find(|h| h.string == g.string && h.t > g.t)
+            .map(|h| h.t);
+        let j = onsets.partition_point(|&t| t <= g.t);
+        let nxt_any = onsets.get(j).copied();
+        // how long it rings (chart seconds): its sustain, else until the next notes come in (chords and sustains
+        // ring on a little), never past the next note on the same string
+        let mut dur = if g.sus > 0.05 {
+            g.sus + 0.12
+        } else if let Some(n) = nxt_any {
+            ((n - g.t) + if g.in_chord { 0.5 } else { 0.15 }).min(1.6)
+        } else {
+            1.6
+        };
+        if let Some(n) = nxt_same {
+            dur = dur.min(n - g.t + 0.01);
+        }
+        if tech.has(Techs::PALM_MUTE) {
+            dur = dur.min(0.22);
+        }
+        let dur_s = (dur / speed).max(0.03);
+        let f = midi_hz(note_pitch(g, opens));
+        let legato = tech.has(Techs::HAMMER_ON) || tech.has(Techs::PULL_OFF) || tech.has(Techs::TAP);
+        let (mut t60, mut bright, mut gain) = if bass {
+            if tech.has(Techs::SLAP) || tech.has(Techs::POP) {
+                (3.5, 0.85, 1.2)
+            } else {
+                (3.5, 0.35, 1.0)
+            }
+        } else {
+            (
+                if f < 200.0 {
+                    4.0
+                } else if f < 500.0 {
+                    2.6
+                } else {
+                    1.6
+                },
+                0.6,
+                1.0,
+            )
+        };
+        if g.in_chord {
+            gain *= 0.7;
+        }
+        if legato {
+            bright *= 0.5;
+            gain *= 0.6;
+        }
+        if tech.has(Techs::PALM_MUTE) {
+            t60 = 0.22;
+            bright = 0.2;
+        }
+        if tech.has(Techs::ACCENT) {
+            gain *= 1.3;
+        }
+        let at = ((g.t - start) / speed).max(0.0) + order[i] as f64 * STRUM;
+        let mut tone: Vec<f64> = if tech.has(Techs::FRET_HAND_MUTE) {
+            // a dead "chk": a fast-dying, dark burst
+            string_tone(f, 0.05, rate, None, 0.04, 0.25, rng)
+                .iter()
+                .map(|v| v * 0.6 * gain)
+                .collect()
+        } else if tech.has(Techs::TREMOLO) {
+            let hits = ((dur_s / 0.075) as usize).max(1);
+            (0..hits)
+                .flat_map(|_| string_tone(f, 0.075, rate, None, t60, bright, rng))
+                .map(|v| v * gain)
+                .collect()
+        } else {
+            let semis = pitch_curve(g, dur_s, rate);
+            let mut t = if tech.has(Techs::HARMONIC) {
+                string_tone(f, dur_s, rate, semis.as_deref(), t60 * 1.3, 0.9, rng)
+                    .iter()
+                    .map(|v| v * 0.7 * gain)
+                    .collect::<Vec<_>>()
+            } else {
+                let mut t: Vec<f64> = string_tone(f, dur_s, rate, semis.as_deref(), t60, bright, rng)
+                    .iter()
+                    .map(|v| v * gain)
+                    .collect();
+                if tech.has(Techs::PINCH_HARMONIC) {
+                    // the squeal rides on top of the fretted note
+                    let sq = string_tone(
+                        f * 2f64.powf(19.0 / 12.0),
+                        dur_s,
+                        rate,
+                        semis.as_deref(),
+                        t60,
+                        0.95,
+                        rng,
+                    );
+                    for (a, b) in t.iter_mut().zip(sq) {
+                        *a += b * 0.6 * gain;
+                    }
+                }
+                t
+            };
+            if tech.has(Techs::UNPITCHED_SLIDE) {
+                let n = t.len().max(1);
+                for (k, v) in t.iter_mut().enumerate() {
+                    *v *= (1.0 - k as f64 / n as f64).sqrt();
+                }
+            }
+            t
+        };
+        // a short release so cut-off notes don't click
+        let rel = tone.len().min((0.03 * rf) as usize);
+        if rel > 1 {
+            let n = tone.len();
+            for k in 0..rel {
+                tone[n - rel + k] *= 1.0 - k as f64 / (rel - 1) as f64;
+            }
+        }
+        let a = (at * rf) as usize;
+        for (k, v) in tone.iter().enumerate() {
+            add(a + k, *v);
+        }
+    }
+    true
 }
 
 /// The tone the synth plays through: your monitoring tone, or Clean when that is "as is" (and for bass).
@@ -566,7 +606,9 @@ impl SynthPlayer {
         }
     }
 
-    /// Play chart time [a, b) from the song itself (`offset` = song time - chart time), slowed when speed < 1.
+    /// Play chart time [a, b) from the song itself (`offset` = song time - chart time), slowed when speed < 1 and
+    /// shifted by `semitones`.
+    #[allow(clippy::too_many_arguments)]
     pub fn start_track(
         &mut self,
         song: Arc<crate::decode::SongBuffer>,
@@ -574,6 +616,7 @@ impl SynthPlayer {
         b: f64,
         offset: f64,
         speed: f64,
+        semitones: f32,
         looped: bool,
     ) {
         let (generation, cancel) = self.begin(a, b, speed, looped);
@@ -582,7 +625,7 @@ impl SynthPlayer {
         let spawned = std::thread::Builder::new()
             .name("qrs-synth".into())
             .spawn(move || {
-                let samples = track_clip(&song, a + offset, b + offset, speed);
+                let samples = track_clip(&song, a + offset, b + offset, speed, semitones);
                 if !cancel.load(Ordering::Relaxed) {
                     *ready.lock() = Some((
                         generation,
@@ -669,9 +712,124 @@ impl SynthPlayer {
     }
 }
 
-/// Song seconds [t0, t1) of the song's own audio as a stereo clip, slowed to `speed`, with short fades at the ends
-/// so neither end (nor a loop coming round) clicks.
-pub fn track_clip(song: &crate::decode::SongBuffer, t0: f64, t1: f64, speed: f64) -> Vec<f32> {
+/// A part's passage [from, to) played on the synth as one mono take at `speed`, any length (rendered in
+/// pieces of under a minute, each note in exactly one piece, their ring-outs overlapping), for checking the take
+/// analysis (`quickrs-cli take-check`, the take tests). Sample 0 is chart time `from`.
+pub fn render_mono(
+    arr: &qrs_formats::Arrangement,
+    from: f64,
+    to: f64,
+    speed: f64,
+    tone: Option<ToneParams>,
+    rate: u32,
+) -> Vec<f32> {
+    let notes = notes_of(arr);
+    let opens = arr.open_string_midi();
+    let cancel = AtomicBool::new(false);
+    let place = |t: f64| t;
+    let o = RenderOptions {
+        rate,
+        speed,
+        bass: arr.is_bass,
+        tone,
+        looped: false,
+        seed: 7,
+        place: &place,
+        cancel: &cancel,
+    };
+    let piece = (MAX_SECONDS - 10.0) * speed.min(1.0);
+    let mut out: Vec<f32> = Vec::new();
+    let mut a = from;
+    while a < to {
+        let b = (a + piece).min(to);
+        let st = render(&notes, &opens, a, b, &o).unwrap_or_default();
+        let at = ((a - from) / speed * rate as f64).round() as usize;
+        let n = st.len() / 2;
+        if out.len() < at + n {
+            out.resize(at + n, 0.0);
+        }
+        for (k, f) in st.chunks_exact(2).enumerate() {
+            out[at + k] += 0.5 * (f[0] + f[1]);
+        }
+        a = b;
+    }
+    out
+}
+
+/// A whole part on the synth, to play in place of the song's guitar (P23.11): mono at `rate`, `frames` long, chart
+/// time t at sample (t + offset) x rate (`offset` = song time - chart time), at the chart's tempo, through `tone`
+/// (dry when None). Unlike `render` it has no length limit and doesn't loop; it's left at about guitar-input level
+/// (the dry peak at 0.35 before the tone) for the caller to set against the song. `progress` counts to 1000.
+/// None if cancelled. Off the audio thread (it allocates the whole part).
+#[allow(clippy::too_many_arguments)]
+pub fn render_part(
+    notes: &[SynthNote],
+    opens: &[i32],
+    bass: bool,
+    tone: Option<ToneParams>,
+    rate: u32,
+    frames: usize,
+    offset: f64,
+    cancel: &AtomicBool,
+    progress: &AtomicU32,
+) -> Option<Vec<f32>> {
+    let mut sel: Vec<&SynthNote> = notes.iter().collect();
+    sel.sort_by(|a, b| a.t.total_cmp(&b.t).then(a.string.cmp(&b.string)));
+    let mut rng = Rng::new(1);
+    let mut buf = vec![0.0f32; frames];
+    let ok = pluck_notes(
+        &sel,
+        opens,
+        -offset,
+        1.0,
+        bass,
+        rate,
+        &mut rng,
+        cancel,
+        Some(progress),
+        |k, v| {
+            if let Some(slot) = buf.get_mut(k) {
+                *slot += v as f32;
+            }
+        },
+    );
+    if !ok {
+        return None;
+    }
+    let peak = buf.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    if peak > 0.0 {
+        for v in &mut buf {
+            *v *= 0.35 / peak;
+        }
+    }
+    if let Some(p) = tone {
+        let mut chain = ToneChain::new(rate, p);
+        for (i, c) in buf.chunks_mut(512).enumerate() {
+            if i % 256 == 0 && cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            chain.process(c);
+        }
+    }
+    // a short fade at the very end, so a part that rings past the song's end doesn't click off
+    let n = buf.len();
+    let fade = n.min((0.05 * rate as f64) as usize);
+    for k in 0..fade {
+        buf[n - fade + k] *= 1.0 - k as f32 / fade as f32;
+    }
+    progress.store(1000, Ordering::Relaxed);
+    Some(buf)
+}
+
+/// Song seconds [t0, t1) of the song's own audio as a stereo clip, slowed to `speed` and shifted by `semitones`,
+/// with short fades at the ends so neither end (nor a loop coming round) clicks.
+pub fn track_clip(
+    song: &crate::decode::SongBuffer,
+    t0: f64,
+    t1: f64,
+    speed: f64,
+    semitones: f32,
+) -> Vec<f32> {
     let rate = song.rate as f64;
     let i0 = ((t0 * rate).max(0.0) as usize).min(song.frames());
     let i1 = ((t1 * rate).max(0.0) as usize).clamp(i0, song.frames());
@@ -679,8 +837,9 @@ pub fn track_clip(song: &crate::decode::SongBuffer, t0: f64, t1: f64, speed: f64
         .iter()
         .map(|&s| s as f32 / 32768.0)
         .collect();
-    if speed < 0.999 && !clip.is_empty() {
-        clip = crate::stretch::stretch_clip(&clip, song.rate, speed);
+    // slower or faster (a take listened back at 105-150% too), and shifted
+    if ((speed - 1.0).abs() > 1e-3 || semitones != 0.0) && !clip.is_empty() {
+        clip = crate::stretch::stretch_clip(&clip, song.rate, speed, semitones);
     }
     let frames = clip.len() / 2;
     let n = (frames / 2).min((0.006 * rate) as usize);
@@ -697,6 +856,19 @@ pub fn track_clip(song: &crate::decode::SongBuffer, t0: f64, t1: f64, speed: f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_track_clip_is_stretched_faster_too() {
+        let song = crate::decode::SongBuffer {
+            rate: 48000,
+            samples: std::sync::Arc::new(vec![1000i16; 48000 * 2 * 2]),
+        };
+        for (speed, want) in [(1.0, 1.0), (0.5, 2.0), (1.25, 0.8), (1.5, 1.0 / 1.5)] {
+            let clip = track_clip(&song, 0.5, 1.5, speed, 0.0);
+            let secs = clip.len() as f64 / 2.0 / 48000.0;
+            assert!((secs - want).abs() < 0.01, "{speed}: {secs}");
+        }
+    }
 
     fn n(t: f64, string: i32, fret: i32, tech: Techs) -> SynthNote {
         SynthNote {
@@ -720,6 +892,103 @@ mod tests {
         let mut sp = qrs_analysis::Spectra::new();
         let (f, _) = qrs_analysis::pitch::pitch(&mut sp, &xf, rate);
         assert!((1200.0 * (f / 110.0).log2()).abs() < 5.0, "{f}");
+    }
+
+    /// A recording that grows as it's "played in".
+    struct Rec {
+        rate: u32,
+        data: Vec<f32>,
+        written: u64,
+    }
+
+    impl qrs_analysis::SampleSource for Rec {
+        fn rate(&self) -> u32 {
+            self.rate
+        }
+        fn written(&self) -> u64 {
+            self.written
+        }
+        fn read(&self, start: u64, out: &mut [f32]) -> bool {
+            let end = start as usize + out.len();
+            if end as u64 > self.written || end > self.data.len() {
+                return false;
+            }
+            out.copy_from_slice(&self.data[start as usize..end]);
+            true
+        }
+        fn latest(&self, out: &mut [f32]) -> bool {
+            let w = self.written as usize;
+            w >= out.len() && self.read((w - out.len()) as u64, out)
+        }
+    }
+
+    /// The ear trainer's pluck reader (qrs-analysis ear.rs, P13.2) on plucked strings through the clean amp: Smoke
+    /// on the Water's riff on the G string (lesson 1's first, at its chart's timing, the quick 6-5 included), the
+    /// sound coming in 10 ms at a time and each onset reported 8 ms late, as the engine's are. Every pluck is read
+    /// once, as its note.
+    #[test]
+    fn the_ear_reader_hears_a_plucked_riff() {
+        let rate = 48000;
+        let riff: [(f64, i32); 12] = [
+            (0.0, 0),
+            (0.537, 3),
+            (1.093, 5),
+            (1.906, 0),
+            (2.448, 3),
+            (2.990, 6),
+            (3.261, 5),
+            (4.309, 0),
+            (4.851, 3),
+            (5.419, 5),
+            (6.218, 3),
+            (6.752, 0),
+        ];
+        let notes: Vec<SynthNote> = riff
+            .iter()
+            .map(|&(t, fret)| SynthNote {
+                sus: 0.5,
+                ..n(1.0 + t, 3, fret, Techs::NONE)
+            })
+            .collect();
+        let cancel = AtomicBool::new(false);
+        let place = |t: f64| t;
+        let o = RenderOptions {
+            rate,
+            speed: 1.0,
+            bass: false,
+            tone: Some(Preset::Clean.params()),
+            looped: false,
+            seed: 7,
+            place: &place,
+            cancel: &cancel,
+        };
+        let opens = [40, 45, 50, 55, 59, 64];
+        let clip = render(&notes, &opens, 1.0, 9.0, &o).unwrap();
+        let mono: Vec<f32> = clip.chunks(2).map(|f| f[0]).collect();
+        let mut rec = Rec {
+            rate,
+            data: mono,
+            written: 0,
+        };
+        let mut reader = qrs_analysis::ear::PluckReader::default();
+        let mut read: Vec<(u64, Option<f64>)> = Vec::new();
+        let onsets: Vec<u64> = riff.iter().map(|&(t, _)| (t * rate as f64) as u64).collect();
+        let (step, late) = (rate as u64 / 100, (0.008 * rate as f64) as u64);
+        let mut next = 0;
+        while rec.written < rec.data.len() as u64 {
+            rec.written = (rec.written + step).min(rec.data.len() as u64);
+            while next < onsets.len() && onsets[next] + late <= rec.written {
+                reader.push(onsets[next], rate);
+                next += 1;
+            }
+            read.extend(reader.poll(&rec));
+        }
+        assert_eq!(read.len(), riff.len(), "{read:?}");
+        for ((index, midi), &(t, fret)) in read.iter().zip(&riff) {
+            assert_eq!(*index, (t * rate as f64) as u64);
+            let m = midi.unwrap_or_else(|| panic!("the pluck at {t} s wasn't read"));
+            assert_eq!(m.round() as i32, 55 + fret, "the pluck at {t} s read as {m:.2}");
+        }
     }
 
     #[test]
@@ -769,6 +1038,33 @@ mod tests {
             cancel: &cancel,
         };
         assert!(render(&notes, &[40, 45, 50, 55, 59, 64], 0.0, 20.0, &o).is_none());
+    }
+
+    #[test]
+    fn a_whole_part_plays_on_the_song_s_clock() {
+        // two notes, the song 0.5 s ahead of the chart, longer than a selection can be
+        let rate = 48000;
+        let notes = vec![n(1.0, 0, 5, Techs::NONE), n(70.0, 0, 7, Techs::NONE)];
+        let opens = [40, 45, 50, 55, 59, 64];
+        let (cancel, prog) = (AtomicBool::new(false), AtomicU32::new(0));
+        let frames = 75 * rate as usize;
+        let out = render_part(&notes, &opens, false, None, rate, frames, 0.5, &cancel, &prog).unwrap();
+        assert_eq!(out.len(), frames, "as long as the song");
+        assert_eq!(prog.load(Ordering::Relaxed), 1000);
+        let first = out.iter().position(|v| v.abs() > 1e-3).unwrap();
+        assert!((first as f64 / rate as f64 - 1.5).abs() < 0.01, "{first}");
+        // silent between the notes, then the second at 70.5 s with its pitch (string 0 fret 7: B2)
+        let gap = &out[(5 * rate) as usize..(70 * rate) as usize];
+        assert!(gap.iter().all(|v| v.abs() < 1e-3));
+        let at = (70.6 * rate as f64) as usize;
+        let xf = &out[at..at + 8192];
+        let mut sp = qrs_analysis::Spectra::new();
+        let (f, _) = qrs_analysis::pitch::pitch(&mut sp, xf, rate);
+        assert!((1200.0 * (f / midi_hz(47.0)).log2()).abs() < 10.0, "{f}");
+        assert!(out.iter().all(|v| v.is_finite() && v.abs() < 1.0));
+        // cancelled: nothing
+        cancel.store(true, Ordering::Relaxed);
+        assert!(render_part(&notes, &opens, false, None, rate, frames, 0.5, &cancel, &prog).is_none());
     }
 
     #[test]

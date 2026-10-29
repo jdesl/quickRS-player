@@ -2,12 +2,16 @@
 //! rsplay/userdata.py, D6). Songs are identified by file name plus song key ("1979_p.psarc|",
 //! "songs.psarc|WalkThisWay"), so they survive the library moving drive. New here: `aliases`, canonical song ids
 //! ("artist|title") pointing at every source id a song was played from, so a psarc and its converted feedpak share
-//! one history (PLAN.md section 5). Unknown keys survive a save.
+//! one history (PLAN.md section 5). Also new: `licks`, stretches of songs saved from the player (P11.1), and
+//! `lessons`, how far you've got with each lesson's riffs (P13.3), and `song_audio`, each song's pitch shift and
+//! stem mix (P20.3). Unknown keys survive a save.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
+
+use crate::lessons::RiffProgress;
 
 use crate::paths::write_atomic;
 
@@ -24,6 +28,188 @@ pub struct Run {
     pub at: Option<f64>,
 }
 
+/// A saved lick: a stretch of one part of a song (the loop it was saved from) and what it was in.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Lick {
+    /// The song's id it was played from ("file name|song key"), and its canonical id ("artist|title").
+    pub song: String,
+    pub canonical: String,
+    /// The part's name ("Lead") and key (its arrangement's).
+    pub part: String,
+    pub part_key: String,
+    /// Chart seconds.
+    pub start: f64,
+    pub end: f64,
+    pub title: String,
+    pub artist: String,
+    pub tuning: String,
+    /// The sections it falls in, in order ("Verse", "Chorus 2").
+    pub sections: Vec<String>,
+    /// First and last bar (bar numbers as the tab shows them).
+    pub bars: Option<(i32, i32)>,
+    /// A short name, e.g. "Chorus · bars 29-31".
+    pub name: String,
+    /// Epoch seconds.
+    pub saved: f64,
+    /// Fields this version doesn't use, kept as they were.
+    pub other: Map<String, Value>,
+}
+
+impl Lick {
+    /// "Chorus · bars 29-31" (the first section, the bars), or the time when there's neither.
+    pub fn auto_name(sections: &[String], bars: Option<(i32, i32)>, start: f64) -> String {
+        let mut bits: Vec<String> = Vec::new();
+        if let Some(s) = sections.first() {
+            bits.push(s.clone());
+        }
+        match bars {
+            Some((a, b)) if a == b => bits.push(format!("bar {a}")),
+            Some((a, b)) => bits.push(format!("bars {a}-{b}")),
+            None => {}
+        }
+        if bits.is_empty() {
+            let t = start.max(0.0) as i64;
+            bits.push(format!("from {}:{:02}", t / 60, t % 60));
+        }
+        bits.join(" · ")
+    }
+
+    fn from_json(v: &Value) -> Option<Lick> {
+        let mut m = v.as_object()?.clone();
+        let mut take_str = |k: &str| match m.remove(k) {
+            Some(Value::String(s)) => s,
+            _ => String::new(),
+        };
+        let song = take_str("song");
+        let canonical = take_str("canonical");
+        let part = take_str("part");
+        let part_key = take_str("part_key");
+        let title = take_str("title");
+        let artist = take_str("artist");
+        let tuning = take_str("tuning");
+        let name = take_str("name");
+        if song.is_empty() && canonical.is_empty() {
+            return None;
+        }
+        let start = m.remove("start").and_then(|v| v.as_f64())?;
+        let end = m.remove("end").and_then(|v| v.as_f64())?;
+        let sections = match m.remove("sections") {
+            Some(Value::Array(a)) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+            _ => Vec::new(),
+        };
+        let bars = match m.remove("bars") {
+            Some(Value::Array(a)) if a.len() == 2 => a[0]
+                .as_i64()
+                .zip(a[1].as_i64())
+                .map(|(x, y)| (x as i32, y as i32)),
+            _ => None,
+        };
+        let saved = m.remove("saved").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        Some(Lick {
+            song,
+            canonical,
+            part,
+            part_key,
+            start,
+            end,
+            title,
+            artist,
+            tuning,
+            sections,
+            bars,
+            name,
+            saved,
+            other: m,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut m = self.other.clone();
+        m.insert("song".into(), json!(self.song));
+        m.insert("canonical".into(), json!(self.canonical));
+        m.insert("part".into(), json!(self.part));
+        m.insert("part_key".into(), json!(self.part_key));
+        m.insert("start".into(), json!(round_to(self.start, 3)));
+        m.insert("end".into(), json!(round_to(self.end, 3)));
+        m.insert("title".into(), json!(self.title));
+        m.insert("artist".into(), json!(self.artist));
+        m.insert("tuning".into(), json!(self.tuning));
+        m.insert("sections".into(), json!(self.sections));
+        if let Some((a, b)) = self.bars {
+            m.insert("bars".into(), json!([a, b]));
+        }
+        m.insert("name".into(), json!(self.name));
+        m.insert("saved".into(), json!(self.saved));
+        Value::Object(m)
+    }
+}
+
+/// How one stem sits in a song's mix.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StemSetting {
+    pub gain: f64,
+    pub on: bool,
+    pub solo: bool,
+}
+
+/// A song's own audio settings (P20.3): its pitch shift (semitones) and, for a stemmed feedpak, its stem mix by
+/// stem id (empty: the pack's own mix).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SongAudio {
+    pub pitch: i32,
+    pub stems: BTreeMap<String, StemSetting>,
+}
+
+impl SongAudio {
+    pub fn is_default(&self) -> bool {
+        self.pitch == 0 && self.stems.is_empty()
+    }
+
+    fn from_json(v: &Value) -> Option<SongAudio> {
+        let m = v.as_object()?;
+        let mut a = SongAudio {
+            pitch: m.get("pitch").and_then(Value::as_i64).unwrap_or(0).clamp(-24, 24) as i32,
+            ..Default::default()
+        };
+        if let Some(Value::Object(st)) = m.get("stems") {
+            for (id, v) in st {
+                let Some(o) = v.as_object() else { continue };
+                a.stems.insert(
+                    id.clone(),
+                    StemSetting {
+                        gain: o
+                            .get("gain")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(1.0)
+                            .clamp(0.0, 4.0),
+                        on: o.get("on").and_then(Value::as_bool).unwrap_or(true),
+                        solo: o.get("solo").and_then(Value::as_bool).unwrap_or(false),
+                    },
+                );
+            }
+        }
+        Some(a)
+    }
+
+    fn to_json(&self) -> Value {
+        let mut m = Map::new();
+        if self.pitch != 0 {
+            m.insert("pitch".into(), json!(self.pitch));
+        }
+        if !self.stems.is_empty() {
+            let mut st = Map::new();
+            for (id, s) in &self.stems {
+                st.insert(
+                    id.clone(),
+                    json!({"gain": round_to(s.gain, 3), "on": s.on, "solo": s.solo}),
+                );
+            }
+            m.insert("stems".into(), Value::Object(st));
+        }
+        Value::Object(m)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct UserData {
     pub path: PathBuf,
@@ -36,6 +222,12 @@ pub struct UserData {
     pub recent: BTreeMap<String, f64>,
     /// Canonical id -> source ids.
     pub aliases: BTreeMap<String, BTreeSet<String>>,
+    /// Saved licks, oldest first (as they were saved).
+    pub licks: Vec<Lick>,
+    /// Lesson id -> its progress ({"riffs": {riff id -> `RiffProgress`}, and anything else kept as it was}).
+    pub lessons: Map<String, Value>,
+    /// Song id -> its pitch shift and stem mix (only songs that were changed).
+    pub song_audio: BTreeMap<String, SongAudio>,
     /// Keys this version doesn't use, kept as they were.
     pub other: Map<String, Value>,
     /// Goes up with every change, so views can cache what they count.
@@ -115,6 +307,19 @@ impl UserData {
                 u.aliases.insert(k, ids);
             }
         }
+        if let Some(Value::Array(l)) = d.remove("licks") {
+            u.licks = l.iter().filter_map(Lick::from_json).collect();
+        }
+        if let Some(Value::Object(l)) = d.remove("lessons") {
+            u.lessons = l;
+        }
+        if let Some(Value::Object(a)) = d.remove("song_audio") {
+            for (k, v) in a {
+                if let Some(sa) = SongAudio::from_json(&v).filter(|s| !s.is_default()) {
+                    u.song_audio.insert(k, sa);
+                }
+            }
+        }
         u.other = d;
         u
     }
@@ -146,6 +351,22 @@ impl UserData {
                 al.insert(k.clone(), json!(v.iter().collect::<Vec<_>>()));
             }
             doc.insert("aliases".into(), Value::Object(al));
+        }
+        if !self.licks.is_empty() {
+            doc.insert(
+                "licks".into(),
+                Value::Array(self.licks.iter().map(Lick::to_json).collect()),
+            );
+        }
+        if !self.lessons.is_empty() {
+            doc.insert("lessons".into(), Value::Object(self.lessons.clone()));
+        }
+        if !self.song_audio.is_empty() {
+            let mut sa = Map::new();
+            for (k, v) in &self.song_audio {
+                sa.insert(k.clone(), v.to_json());
+            }
+            doc.insert("song_audio".into(), Value::Object(sa));
         }
         for (k, v) in &self.other {
             doc.insert(k.clone(), v.clone());
@@ -271,6 +492,111 @@ impl UserData {
         }
         self.save();
         on
+    }
+
+    // -- saved licks ------------------------------------------------------------------------------------------
+
+    /// Save a lick (stamped now when it has no time); returns its index. The same stretch of the same part saved
+    /// again replaces the older one (it moves to the top).
+    pub fn add_lick(&mut self, mut lick: Lick) -> usize {
+        if lick.saved <= 0.0 {
+            lick.saved = now();
+        }
+        self.licks.retain(|l| {
+            !(l.song == lick.song
+                && l.part_key == lick.part_key
+                && (l.start - lick.start).abs() < 0.01
+                && (l.end - lick.end).abs() < 0.01)
+        });
+        self.licks.push(lick);
+        self.save();
+        self.licks.len() - 1
+    }
+
+    pub fn delete_lick(&mut self, i: usize) -> Option<Lick> {
+        if i >= self.licks.len() {
+            return None;
+        }
+        let l = self.licks.remove(i);
+        self.save();
+        Some(l)
+    }
+
+    /// The licks' indices, newest first.
+    pub fn licks_newest_first(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = (0..self.licks.len()).collect();
+        v.sort_by(|&a, &b| {
+            self.licks[b]
+                .saved
+                .total_cmp(&self.licks[a].saved)
+                .then(b.cmp(&a))
+        });
+        v
+    }
+
+    // -- lessons (P13.3) --------------------------------------------------------------------------------------
+
+    /// How far you've got with a lesson's riff (the default when it hasn't been opened).
+    pub fn riff_progress(&self, lesson: &str, riff: &str) -> RiffProgress {
+        self.lessons
+            .get(lesson)
+            .and_then(|l| l.get("riffs"))
+            .and_then(|r| r.get(riff))
+            .map(RiffProgress::from_json)
+            .unwrap_or_default()
+    }
+
+    /// Keep a riff's progress (saves).
+    pub fn set_riff_progress(&mut self, lesson: &str, riff: &str, p: &RiffProgress) {
+        let l = self
+            .lessons
+            .entry(lesson.to_string())
+            .or_insert_with(|| json!({}));
+        if !l.is_object() {
+            *l = json!({});
+        }
+        if let Some(lm) = l.as_object_mut() {
+            let riffs = lm.entry("riffs").or_insert_with(|| json!({}));
+            if !riffs.is_object() {
+                *riffs = json!({});
+            }
+            if let Some(rm) = riffs.as_object_mut() {
+                rm.insert(riff.to_string(), p.to_json());
+            }
+        }
+        self.save();
+    }
+
+    /// Start a riff again from its first step (saves).
+    pub fn forget_riff(&mut self, lesson: &str, riff: &str) {
+        if let Some(rm) = self
+            .lessons
+            .get_mut(lesson)
+            .and_then(|l| l.get_mut("riffs"))
+            .and_then(|r| r.as_object_mut())
+            && rm.remove(riff).is_some()
+        {
+            self.save();
+        }
+    }
+
+    // -- a song's pitch and stem mix ---------------------------------------------------------------------------
+
+    /// The song's pitch shift and stem mix (the default when it was never changed).
+    pub fn song_audio(&self, sid: &str) -> SongAudio {
+        self.song_audio.get(sid).cloned().unwrap_or_default()
+    }
+
+    /// Remember the song's pitch shift and stem mix (forgotten when back to the default); saves on a change.
+    pub fn set_song_audio(&mut self, sid: &str, a: SongAudio) {
+        let changed = if a.is_default() {
+            self.song_audio.remove(sid).is_some()
+        } else {
+            self.song_audio.insert(sid.to_string(), a.clone()) != Some(a)
+        };
+        if changed {
+            self.save();
+        }
     }
 
     // -- history and scores -----------------------------------------------------------------------------------
@@ -486,6 +812,128 @@ mod tests {
         assert_eq!(back.other.get("future_key"), Some(&json!(7)));
         assert_eq!(back.playlists[0].0, "Gig");
         assert_eq!(back.scores["A - Song.feedpak|"]["lead"]["completions"], json!(2));
+    }
+
+    #[test]
+    fn song_audio_round_trips_and_is_forgotten_at_default() {
+        let p = tmp("song_audio");
+        std::fs::write(
+            &p,
+            r#"{"favorites": [], "playlists": {}, "scores": {}, "recent": {}}"#,
+        )
+        .unwrap();
+        let mut u = UserData::load(&p);
+        assert!(u.song_audio("a.feedpak|").is_default());
+        let mut a = SongAudio {
+            pitch: -2,
+            ..Default::default()
+        };
+        a.stems.insert(
+            "guitar".into(),
+            StemSetting {
+                gain: 0.5,
+                on: false,
+                solo: false,
+            },
+        );
+        u.set_song_audio("a.feedpak|", a.clone());
+        let back = UserData::load(&p);
+        assert_eq!(back.song_audio("a.feedpak|"), a);
+        assert!(std::fs::read_to_string(&p).unwrap().contains("song_audio"));
+        u.set_song_audio("a.feedpak|", SongAudio::default());
+        let back = UserData::load(&p);
+        assert!(back.song_audio.is_empty());
+        assert!(!std::fs::read_to_string(&p).unwrap().contains("song_audio"));
+    }
+
+    #[test]
+    fn licks_round_trip_and_keep_other_keys() {
+        let p = tmp("licks");
+        std::fs::write(
+            &p,
+            r#"{"favorites": ["a_p.psarc|"], "playlists": {}, "scores": {}, "recent": {}, "future_key": [1, 2],
+                "licks": [{"song": "a_p.psarc|", "start": 1.0, "end": 2.0, "saved": 5.0, "colour": "red"},
+                          {"start": 1.0, "end": 2.0}]}"#,
+        )
+        .unwrap();
+        let mut u = UserData::load(&p);
+        assert_eq!(u.licks.len(), 1, "a lick with no song is dropped");
+        assert_eq!(u.licks[0].other.get("colour"), Some(&json!("red")));
+        let sections = vec!["Chorus".to_string(), "Verse 2".to_string()];
+        let i = u.add_lick(Lick {
+            song: "b_p.psarc|".into(),
+            canonical: "artist|title".into(),
+            part: "Lead".into(),
+            part_key: "lead0".into(),
+            start: 61.23456,
+            end: 72.5,
+            title: "Title".into(),
+            artist: "Artist".into(),
+            tuning: "E Standard".into(),
+            name: Lick::auto_name(&sections, Some((29, 31)), 61.2),
+            sections: sections.clone(),
+            bars: Some((29, 31)),
+            saved: 0.0,
+            other: Map::new(),
+        });
+        assert_eq!(i, 1);
+        assert!(u.licks[1].saved > 5.0);
+        assert_eq!(u.licks[1].name, "Chorus · bars 29-31");
+        assert_eq!(u.licks_newest_first(), vec![1, 0]);
+        let back = UserData::load(&p);
+        assert_eq!(back.licks.len(), 2);
+        assert_eq!(back.licks[1].start, 61.235);
+        assert_eq!(back.licks[1].sections, sections);
+        assert_eq!(back.licks[1].bars, Some((29, 31)));
+        assert_eq!(back.licks[0].other.get("colour"), Some(&json!("red")));
+        assert_eq!(back.other.get("future_key"), Some(&json!([1, 2])));
+        assert!(back.favorites.contains("a_p.psarc|"));
+        // the same stretch saved again replaces the old one; delete
+        let mut u = back;
+        let again = u.licks[1].clone();
+        u.add_lick(Lick { saved: 0.0, ..again });
+        assert_eq!(u.licks.len(), 2);
+        assert_eq!(u.delete_lick(0).map(|l| l.song), Some("a_p.psarc|".to_string()));
+        assert_eq!(UserData::load(&p).licks.len(), 1);
+        // no licks: no key written
+        u.delete_lick(0);
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(!text.contains("\"licks\""));
+        assert_eq!(Lick::auto_name(&[], None, 75.0), "from 1:15");
+        assert_eq!(Lick::auto_name(&[], Some((4, 4)), 75.0), "bar 4");
+    }
+
+    #[test]
+    fn lesson_progress_round_trips_and_keeps_other_keys() {
+        let p = tmp("lessons");
+        std::fs::write(
+            &p,
+            r#"{"favorites": [], "playlists": {}, "scores": {}, "recent": {},
+                "lessons": {"by-ear-1": {"note": "mine", "riffs": {"smoke": {"step": "listen", "listens": 2,
+                "mood": "good"}}}}}"#,
+        )
+        .unwrap();
+        let mut u = UserData::load(&p);
+        let mut smoke = u.riff_progress("by-ear-1", "smoke");
+        assert_eq!((smoke.step.as_str(), smoke.listens), ("listen", 2));
+        assert_eq!(u.riff_progress("by-ear-1", "other"), RiffProgress::default());
+        assert_eq!(u.riff_progress("nope", "smoke"), RiffProgress::default());
+        smoke.step = "notes".into();
+        smoke.found = 3;
+        u.set_riff_progress("by-ear-1", "smoke", &smoke);
+        u.set_riff_progress("by-ear-2", "a", &RiffProgress::default());
+        let back = UserData::load(&p);
+        let s = back.riff_progress("by-ear-1", "smoke");
+        assert_eq!((s.step.as_str(), s.found), ("notes", 3));
+        assert_eq!(s.other.get("mood"), Some(&json!("good")));
+        assert_eq!(back.lessons["by-ear-1"]["note"], json!("mine"));
+        assert!(back.lessons.contains_key("by-ear-2"));
+        let mut u = back;
+        u.forget_riff("by-ear-1", "smoke");
+        assert_eq!(
+            UserData::load(&p).riff_progress("by-ear-1", "smoke"),
+            RiffProgress::default()
+        );
     }
 
     #[test]
